@@ -8,6 +8,8 @@ Visual, hands-on explanations of system design topics. Each explainer is one HTM
 |---|---|---|
 | [Microservices](explainers/microservices-explained.html) | 23 chapters: request path, gateways, discovery, resilience, messaging, caching, outbox, sagas, observability, security, deployment | `notes/microservices-architecture.md` |
 | [DNS](explainers/dns-explained.html) | 14 chapters: full lookup end to end, root/TLD/authoritative servers, caching, record types, wire format, reverse DNS, DNSSEC, DoH/DoT | Cloudflare Learning Center, RFCs, root-servers.org |
+| [SQL and PostgreSQL](explainers/sql-postgres-explained.html) | 32 chapters: relational model, joins, GROUP BY, window functions, subqueries, CTEs, the path of a query, heap pages and tuples, MVCC, VACUUM, shared buffers, WAL, B-tree and other indexes, planner, executor, join and sort algorithms, EXPLAIN, query optimization, isolation, locks, pooling, replication, partitioning, monitoring and security | PostgreSQL 18 docs and source tree READMEs, PgBouncer docs |
+| [SQL joins and relations](explainers/sql-joins-explained.html) | 16 chapters: keys, foreign keys, 1:1 / 1:N / M:N relationships, the pair model of a join, INNER, LEFT, RIGHT, FULL, CROSS and self joins, semi and anti joins, NULL in joins, row multiplication, USING / NATURAL / range joins / LATERAL, join algorithms, using joins efficiently, choosing a join | PostgreSQL 18 docs (Table Expressions, Constraints, Subquery Expressions), PostgreSQL source |
 
 Progress ("Mark chapter as read") is saved in your browser's localStorage.
 

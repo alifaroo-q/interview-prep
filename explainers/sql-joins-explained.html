@@ -1,0 +1,1809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQL Joins and Relations, Explained</title>
+<style>
+:root{
+  --bg:#0f1218;--panel:#161b24;--panel2:#1d2430;--line:#2b3445;--text:#e3e8f0;--mute:#93a0b4;
+  --edge:#4ea1ff;--svc:#3ecf8e;--data:#f5b942;--msg:#b58cff;--bad:#ff6b6b;--plat:#7ad3e0;--client:#e0e6ef;
+  --ok:#3ecf8e;--warn:#f5b942;
+}
+body.light{--bg:#f6f7fa;--panel:#fff;--panel2:#eef1f6;--line:#d6dce6;--text:#1b2230;--mute:#5d6b80;--client:#39465a}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+code,pre,.mono{font-family:ui-monospace,"JetBrains Mono",Consolas,monospace;font-size:.88em}
+code{background:var(--panel2);padding:1px 5px;border-radius:4px}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;line-height:1.45}
+a{color:var(--edge)}
+/* layout */
+#side{position:fixed;top:0;left:0;bottom:0;width:290px;background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:16px 12px;z-index:5}
+#side h1{font-size:17px;margin:0 6px 4px}
+#side .sub{color:var(--mute);font-size:13px;margin:0 6px 10px}
+#prog{height:6px;background:var(--panel2);border-radius:3px;margin:0 6px 12px;overflow:hidden}
+#prog i{display:block;height:100%;width:0;background:var(--svc);transition:width .4s}
+#nav a{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-radius:6px;color:var(--text);text-decoration:none;font-size:14px;line-height:1.35}
+#nav a:hover{background:var(--panel2)}
+#nav a.cur{background:var(--panel2);box-shadow:inset 3px 0 var(--edge)}
+#nav a .num{color:var(--mute);min-width:22px;font-variant-numeric:tabular-nums}
+#nav a.done .num{color:var(--svc)}
+#nav a.done .num::after{content:" ✓"}
+#tools{display:flex;gap:6px;margin:14px 6px 0}
+main{margin-left:290px;padding:30px 40px 120px;max-width:1040px}
+#menu{display:none}
+@media(max-width:900px){#side{transform:translateX(-100%);transition:.25s}#side.open{transform:none}main{margin-left:0;padding:20px 16px 100px}#menu{display:block;position:fixed;top:10px;right:10px;z-index:6}}
+/* sections */
+section.ch{padding:10px 0 40px;border-bottom:1px solid var(--line);margin-bottom:30px}
+section.ch>h2{font-size:28px;line-height:1.2;margin:10px 0 4px}
+.topics{color:var(--mute);font-size:13px;margin-bottom:14px}
+h3{font-size:20px;margin:30px 0 8px}
+h4{font-size:16px;margin:20px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+p{margin:10px 0}
+.lead{font-size:18px}
+.note{border-left:3px solid var(--edge);background:var(--panel);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0}
+.note.warn{border-color:var(--warn)}.note.bad{border-color:var(--bad)}.note.good{border-color:var(--ok)}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel2)}
+.done-btn{margin-top:18px}
+/* controls */
+button,select,input[type=text]{font:inherit;font-size:14px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 12px}
+button{cursor:pointer}
+button:hover{border-color:var(--edge)}
+button.pri{background:var(--edge);border-color:var(--edge);color:#fff}
+button.dan{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.45;cursor:default}
+label{font-size:14px;color:var(--mute)}
+input[type=range]{vertical-align:middle;width:160px}
+/* widget box */
+.lab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin:18px 0}
+.lab>.t{font-weight:600;margin-bottom:4px}
+.lab>.t::before{content:"▶ ";color:var(--edge)}
+.lab .hint{color:var(--mute);font-size:14px;margin:0 0 10px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.log{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;height:190px;overflow:auto;font:13px/1.5 ui-monospace,Consolas,monospace}
+.log .ok{color:var(--ok)}.log .bad{color:var(--bad)}.log .warn{color:var(--warn)}.log .info{color:var(--edge)}.log .msg{color:var(--msg)}.log .mute{color:var(--mute)}
+.stat{display:inline-block;background:var(--panel2);border-radius:8px;padding:6px 12px;margin:3px;font-size:14px}
+.stat b{font-size:18px;display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+/* diagram nodes */
+.stage{padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:auto}
+.col{display:flex;flex-direction:column;align-items:center;gap:4px}
+.row{display:flex;justify-content:center;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.row.mid{align-items:center}
+.n{border:2px solid var(--svc);color:var(--text);background:var(--panel);border-radius:8px;padding:6px 12px;font-size:14px;text-align:center;min-width:110px;transition:opacity .35s,box-shadow .35s,transform .35s}
+.n small{display:block;color:var(--mute);font-size:11.5px}
+.n.edge{border-color:var(--edge)}.n.svc{border-color:var(--svc)}.n.data{border-color:var(--data);border-radius:14px 14px 8px 8px}.n.msg{border-color:var(--msg)}.n.bad{border-color:var(--bad)}.n.plat{border-color:var(--plat);border-style:dashed}.n.client{border-color:var(--client)}
+.n.dim{opacity:.35}.n.dead{border-color:var(--bad);opacity:.5;text-decoration:line-through}
+.n.hot{box-shadow:0 0 0 4px rgba(78,161,255,.35)}
+.n.hotok{box-shadow:0 0 0 4px rgba(62,207,142,.4)}
+.n.hotbad{box-shadow:0 0 0 4px rgba(255,107,107,.45)}
+.ar{color:var(--mute);font-size:18px;line-height:1;text-align:center;transition:opacity .35s}
+.ar small{font-size:11px;display:block}
+.box{border:1px dashed var(--line);border-radius:10px;padding:10px;position:relative}
+.box>.bt{position:absolute;top:-10px;left:10px;background:var(--bg);padding:0 6px;font-size:12px;color:var(--mute)}
+.fan{display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
+.fan>.col{gap:2px}
+/* build-up */
+.build{margin:16px 0}
+.build .off{opacity:0 !important;pointer-events:none}
+.build .fresh{animation:fresh 1.1s}
+@keyframes fresh{0%{transform:scale(.92);box-shadow:0 0 0 6px rgba(78,161,255,.55)}100%{transform:none}}
+.build .caps{min-height:52px;margin-top:10px}
+.build .cap{display:none;margin:0;background:var(--panel);border-radius:8px;padding:10px 14px;border:1px solid var(--line)}
+.build .cap.on{display:block}
+.build .ctl{display:flex;gap:8px;align-items:center;margin-top:8px}
+.build .ctl span{color:var(--mute);font-size:13px}
+/* misc widget bits */
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--panel2);border:1px solid var(--line)}
+.pill.ok{border-color:var(--ok);color:var(--ok)}.pill.bad{border-color:var(--bad);color:var(--bad)}.pill.warn{border-color:var(--warn);color:var(--warn)}
+.cells{display:flex;flex-wrap:wrap;gap:4px}
+.cell{min-width:34px;height:30px;border:1px solid var(--line);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--panel2);padding:0 4px}
+.cell.msg{border-color:var(--msg)}.cell.bad{border-color:var(--bad);color:var(--bad)}.cell.ok{border-color:var(--ok)}.cell.busy{border-color:var(--warn);background:rgba(245,185,66,.18)}
+.meter{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--svc);transition:width .3s}
+.flip{cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:90px}
+.flip .b{display:none;color:var(--mute);margin-top:6px;font-size:14px}
+.flip.open .b{display:block}
+.chk label{display:block;color:var(--text);padding:3px 0}
+.state{display:inline-block;padding:6px 14px;border-radius:8px;font-weight:700;border:2px solid var(--line);margin:2px}
+.state.on.closed{border-color:var(--ok);color:var(--ok)}.state.on.open{border-color:var(--bad);color:var(--bad)}.state.on.half{border-color:var(--warn);color:var(--warn)}
+.wf{position:relative;height:22px;margin:3px 0;font-size:12px}
+.wf i{position:absolute;top:0;height:100%;background:var(--edge);border-radius:4px;opacity:.85}
+.wf span{position:absolute;left:0;top:2px;width:120px;color:var(--mute)}
+.wfwrap{padding-left:125px;position:relative}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:14px}
+</style>
+</head>
+<body>
+<button id="menu" onclick="document.getElementById('side').classList.toggle('open')">☰ Menu</button>
+<aside id="side">
+  <h1>SQL Joins and Relations</h1>
+  <div class="sub">16 chapters · hands-on labs</div>
+  <div id="prog"><i></i></div>
+  <nav id="nav"></nav>
+  <div id="tools"><button onclick="document.body.classList.toggle('light')">Light / dark</button><button onclick="localStorage.removeItem('sql-joins-done');location.reload()">Reset progress</button></div>
+</aside>
+<main>
+
+<style>
+/* join toolkit: data tables, link lines, pair grid, Venn */
+.grid2>div,.card{min-width:0;overflow-x:auto}
+.lab select{max-width:100%}
+section.ch>table{display:block;overflow-x:auto}
+.lab .bar>label{display:inline-block;max-width:100%}
+.jl-res,.jl-grid,#c1-table,#c11b-out,#c11b-rows,#c16-res,#c6b-res,#c13b-res,#c13c-res{overflow-x:auto}
+.nul{color:var(--mute);font-style:italic;font-size:.92em}
+table.dt{width:auto;margin:4px 0;font-size:13px}
+table.dt td,table.dt th{padding:3px 9px;white-space:nowrap}
+tr.k-m td{background:rgba(62,207,142,.14)}
+tr.k-l td{background:rgba(245,185,66,.18)}
+tr.k-r td{background:rgba(181,140,255,.2)}
+tr.dup td{background:rgba(255,107,107,.18)}
+tr.cur td{box-shadow:inset 0 2px var(--warn),inset 0 -2px var(--warn)}
+tr.gone td{text-decoration:line-through;opacity:.45}
+tr.fresh td{animation:rowin .9s}
+@keyframes rowin{from{background:rgba(78,161,255,.5)}}
+td.ed{cursor:pointer;text-decoration:underline dotted var(--edge);text-underline-offset:3px}
+td.ed:hover{background:var(--panel2)}
+.lvwrap{overflow-x:auto;padding:4px 0}
+.lv{position:relative;display:flex;gap:110px;justify-content:center;align-items:flex-start;width:max-content;min-width:100%}
+.lv-n{font:600 13px ui-monospace,Consolas,monospace;color:var(--mute);margin-bottom:2px}
+.lv-svg{position:absolute;left:0;top:0;pointer-events:none;overflow:visible}
+.lk{fill:none;stroke:var(--ok);stroke-width:2;opacity:.9}
+.lk.try{stroke-width:3;stroke-dasharray:7 5}
+.lk.no{stroke:var(--bad)}.lk.unk{stroke:var(--warn)}.lk.fk{stroke:var(--edge)}.lk.dim{opacity:.18}.lk.bad{stroke:var(--bad)}
+.xg{width:auto}
+.xg td,.xg th{padding:2px 8px;text-align:center;font-size:12.5px;min-width:30px}
+.xg td.t{color:var(--ok);font-weight:700}.xg td.f{color:var(--mute)}.xg td.u{color:var(--warn);font-weight:700}
+.xg td.now{box-shadow:inset 0 0 0 2px var(--warn)}
+.legend{font-size:13px;color:var(--mute);margin:6px 0}
+.legend span{display:inline-block;margin-right:14px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+.jl-msg{min-height:28px;font-size:14.5px;margin:6px 0;padding:6px 10px;background:var(--panel2);border-radius:8px}
+.venn text{font:12px system-ui,sans-serif;fill:var(--text)}
+.venn .vt{fill:var(--mute);font-size:10.5px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin:10px 0}
+.card{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px}
+.card pre{font-size:12px;margin:4px 0;padding:6px 8px}
+.card h5{margin:0 0 4px;font-size:14px}
+.erd text{font:13px ui-monospace,Consolas,monospace;fill:var(--text)}
+.erd .sm{font-size:11px;fill:var(--mute)}
+.erd rect{fill:var(--panel);stroke:var(--data);stroke-width:2}
+.erd .ln{stroke:var(--text);stroke-width:1.6;fill:none}
+.sqlbox{font:13px/1.45 ui-monospace,Consolas,monospace;white-space:pre-wrap}
+.big{font-size:22px;font-weight:700}
+.tv{display:inline-block;min-width:84px;text-align:center;font-weight:700;padding:2px 8px;border-radius:6px;border:2px solid var(--line)}
+.tv.T{border-color:var(--ok);color:var(--ok)}.tv.F{border-color:var(--mute);color:var(--mute)}.tv.U{border-color:var(--warn);color:var(--warn)}
+.pairgrid{display:inline-grid;gap:3px;margin:6px 0}
+.pairgrid span{width:26px;height:22px;border-radius:4px;background:var(--panel2);border:1px solid var(--line);font-size:10px;display:flex;align-items:center;justify-content:center}
+.pairgrid span.on{background:rgba(245,185,66,.35);border-color:var(--warn)}
+.c14-lane{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}
+.c14-lane>b{min-width:150px;font-size:13px;color:var(--mute);font-weight:600}
+.c14-lane .cell{min-width:64px}
+.c14-lane .cell.busy{outline:2px solid var(--warn)}
+.c14-bk{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
+.c14-bk>div{border:1px dashed var(--line);border-radius:8px;padding:4px 8px;min-width:120px;font-size:13px}
+.c14-bk>div.hot{border-color:var(--warn);border-style:solid}
+.c14-out{font:13px/1.5 ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;min-height:40px}
+.c14-bars div{display:grid;grid-template-columns:190px 1fr 150px;gap:8px;align-items:center;font-size:13.5px;margin:4px 0}
+.c14-bars .meter i.win{background:var(--ok)}
+.c14-bars .meter i.lose{background:var(--edge)}
+.c14-bars .meter i.na{background:var(--line)}
+
+.c14-lane .cell{min-width:80px}
+</style>
+
+<section class="ch" id="c1" data-title="Tables, rows and keys">
+<h2>1. Tables, rows and keys</h2>
+<div class="topics">Covers: table as a set of rows, why rows need identity, candidate key, primary key, UNIQUE, superkey vs key, composite key, natural vs surrogate key, UNIQUE and NULL. Sources: PostgreSQL 18 docs "Constraints" (§5.5.3 Unique Constraints, §5.5.4 Primary Keys), "Sorting Rows" (§7.5), "Identity Columns" (§5.3). Checked 2026-10-01.</div>
+<p class="lead">A <b>table</b> holds rows that all have the same columns. A <b>key</b> is a column, or a group of columns, whose value is different in every row. With a key you can point at exactly one row. Every relation between tables, and so every join, is built on keys.</p>
+
+<h3>The example shop</h3>
+<p>All chapters use one small online shop, <code>acmeshop.com</code>. It has four customers and five orders. Order 105 is a guest checkout, so it has no customer. That NULL is on purpose. It shows up again in many chapters.</p>
+<div class="grid2">
+<div><div class="lv-n">customers</div>
+<table class="dt"><tr><th>id</th><th>name</th><th>city</th></tr><tr><td>1</td><td>Ana</td><td>Lyon</td></tr><tr><td>2</td><td>Ben</td><td>Oslo</td></tr><tr><td>3</td><td>Chen</td><td>Lyon</td></tr><tr><td>4</td><td>Dara</td><td>Porto</td></tr></table></div>
+<div><div class="lv-n">orders</div>
+<table class="dt"><tr><th>id</th><th>customer_id</th><th>total</th></tr><tr><td>101</td><td>1</td><td>250</td></tr><tr><td>102</td><td>1</td><td>40</td></tr><tr><td>103</td><td>2</td><td>120</td></tr><tr><td>104</td><td>3</td><td>80</td></tr><tr><td>105</td><td><span class="nul">NULL</span></td><td>60</td></tr></table></div>
+</div>
+<p>A table has no built-in row order. PostgreSQL returns rows in an order that depends on the plan and on the disk layout, unless you write <code>ORDER BY</code> (docs §7.5). So you can never say "the third row". You can only find a row by its values. That is why keys exist.</p>
+
+<h3>From rows to a key</h3>
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">customers rows<small>Ana, Ben, Chen, Dara, and a second Ana</small></div>
+  <div class="ar" data-s="2">↓ which columns tell rows apart?</div>
+  <div class="row" data-s="2"><div class="n bad">name<small>two rows say Ana</small></div><div class="n bad">city<small>two rows say Lyon</small></div></div>
+  <div class="row" data-s="3"><div class="n svc">id<small>unique, never NULL</small></div><div class="n svc">email<small>unique, never NULL</small></div></div>
+  <div class="n edge" data-s="4">PRIMARY KEY (id)<small>the one key other tables point to</small></div>
+  <div class="n msg" data-s="5">UNIQUE (email)<small>the other key is still enforced</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">Start with rows. SQL allows two identical rows in a table with no key. Then you cannot update or delete one of them by its values alone.</p>
+  <p class="cap" data-s="2">A column is a key only if no two rows can ever share a value. <code>name</code> fails because two customers are called Ana. <code>city</code> fails too.</p>
+  <p class="cap" data-s="3">A <b>candidate key</b> is a smallest set of columns that is unique and never NULL. Here there are two: <code>id</code> and <code>email</code>.</p>
+  <p class="cap" data-s="4">The <b>primary key</b> is the candidate key you choose as the address of the row. PostgreSQL makes its columns <code>NOT NULL</code> and creates a unique B-tree index on them (§5.5.4). A table has at most one primary key.</p>
+  <p class="cap" data-s="5">The other candidate keys get a <code>UNIQUE</code> constraint. The database then rejects a second customer with the same email, even though <code>email</code> is not the primary key.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<h3>Key, superkey, and "unique today"</h3>
+<p>Any set of columns that is unique is a <b>superkey</b>. <code>(id, name)</code> is unique, because <code>id</code> alone is unique. It is not a key, because it is not minimal. You can remove <code>name</code> and it stays unique.</p>
+<p>A key is a rule about all rows that can ever exist, not a fact about the rows you see today. In the sample data, <code>(name, city)</code> happens to be unique. Nothing in the real world stops a second Ana from Lyon signing up tomorrow. If you make it a key, her sign-up fails. Choose keys from the meaning of the data, then let the database enforce them.</p>
+
+<h3>Natural keys and surrogate keys</h3>
+<p>A <b>natural key</b> is a value from the real world, such as an email or an ISBN. A <b>surrogate key</b> is a value the database makes up, such as <code>id bigint GENERATED ALWAYS AS IDENTITY</code>, which takes numbers from a sequence (§5.3).</p>
+<table>
+<tr><th></th><th>Surrogate key (<code>id</code>)</th><th>Natural key (<code>email</code>)</th></tr>
+<tr><td>Can it change?</td><td>No. Nothing in the business changes it.</td><td>Yes. A customer changes email, and every row that points to the old value must change too.</td></tr>
+<tr><td>Size in other tables</td><td>8 bytes for a <code>bigint</code>.</td><td>The length of the text, copied into every row and index that points to it.</td></tr>
+<tr><td>Stops duplicates?</td><td>No. Two sign-ups with the same email get two ids. You still need <code>UNIQUE (email)</code>.</td><td>Yes, by definition.</td></tr>
+</table>
+<p>The common design is a surrogate primary key plus <code>UNIQUE</code> on the natural key. A <b>composite key</b> has more than one column. Junction tables often use one, for example <code>PRIMARY KEY (order_id, product_id)</code> in chapter 3.</p>
+
+<h3>UNIQUE and NULL</h3>
+<p>A primary key column can never be NULL. A <code>UNIQUE</code> column can. The docs say that by default "two null values are not considered equal" (§5.5.3). So a <code>UNIQUE (email)</code> column accepts many rows with a NULL email. Since PostgreSQL 15 you can write <code>UNIQUE NULLS NOT DISTINCT (email)</code> to allow only one NULL. The same rule, "NULL is not equal to NULL", decides how joins treat NULL (chapter 11).</p>
+
+<div class="lab" id="c1-lab">
+ <div class="t">Lab: is it a key?</div>
+ <p class="hint">Tick columns to test them as a key. Red rows share a value. Then add the two sign-ups with no email and test <code>email</code> again.</p>
+ <div class="bar" id="c1-cols"></div>
+ <div class="bar"><label><input type="checkbox" id="c1-nulls"> Add rows 6 and 7: sign-ups with email NULL</label><label><input type="checkbox" id="c1-nnd"> Use UNIQUE NULLS NOT DISTINCT</label></div>
+ <div id="c1-table"></div>
+ <div id="c1-verdict" class="note"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c2" data-title="Foreign keys: how tables point to each other">
+<h2>2. Foreign keys: how tables point to each other</h2>
+<div class="topics">Covers: foreign key, referencing and referenced table, what the database checks on insert, update and delete, ON DELETE actions (NO ACTION, RESTRICT, CASCADE, SET NULL, SET DEFAULT), NULL in a foreign key, MATCH FULL, the index a foreign key does not create. Sources: PostgreSQL 18 docs "Constraints" (§5.5.5 Foreign Keys); PostgreSQL source <code>src/backend/utils/adt/ri_triggers.c</code> for the check queries. Checked 2026-10-01.</div>
+<p class="lead">A <b>foreign key</b> is a column in one table that holds the key of a row in another table. <code>orders.customer_id</code> holds a customer's <code>id</code>. That stored value <i>is</i> the relation. The foreign key constraint makes the database check that the value points to a row that exists.</p>
+
+<h3>The link is a value, not a pointer</h3>
+<p>There is no hidden pointer from an order to a customer. There is only the number <code>1</code> in the <code>customer_id</code> column. To go from order 101 to its customer, the database must search <code>customers</code> for a row with <code>id = 1</code>. A join is that search, done for many rows at once. This is why a relational database can join any two columns that hold the same kind of value, with or without a declared foreign key.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="row mid">
+   <div class="n data" data-s="1">orders<small>id · customer_id · total</small></div>
+   <div class="ar" data-s="2">→<small>customer_id = 1</small></div>
+   <div class="n data" data-s="2">customers<small>id · name · city</small></div>
+  </div>
+  <div class="n svc" data-s="3">FOREIGN KEY (customer_id) REFERENCES customers (id)<small>checked on every write to either table</small></div>
+  <div class="n edge" data-s="4">referenced column must be PRIMARY KEY or UNIQUE<small>so "which row?" always has one answer</small></div>
+  <div class="n bad" data-s="5">no automatic index on orders.customer_id<small>you add it yourself</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1"><code>orders</code> is the <b>referencing</b> table. It holds the foreign key column.</p>
+  <p class="cap" data-s="2"><code>customers</code> is the <b>referenced</b> table. The value <code>1</code> in an order means "the customer whose id is 1".</p>
+  <p class="cap" data-s="3">The constraint turns the convention into a rule. An insert with <code>customer_id = 9</code> fails if no customer 9 exists. Deleting a customer who still has orders fails, or cascades, as you choose.</p>
+  <p class="cap" data-s="4">The docs: "A foreign key must reference columns that either are a primary key or form a unique constraint, or are columns from a non-partial unique index." If the target were not unique, one order could point at two customers.</p>
+  <p class="cap" data-s="5">The target side always has an index, because it is a key. The referencing side does not. The docs say the declaration "does not automatically create an index on the referencing columns". The next section shows why that matters.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<h3>What the database checks, and when</h3>
+<p>PostgreSQL enforces a foreign key with internal triggers (<code>ri_triggers.c</code>). Each trigger runs a small query.</p>
+<ul>
+<li><b>Insert or update an order.</b> It runs <code>SELECT 1 FROM ONLY customers x WHERE id = $1 FOR KEY SHARE OF x</code>. No row means the statement fails. <code>FOR KEY SHARE</code> locks the customer row, so no other transaction can delete it before this one commits. This lookup uses the primary key index, so it is always fast.</li>
+<li><b>Delete a customer, or change its id.</b> It runs <code>SELECT 1 FROM ONLY orders x WHERE $1 = customer_id FOR KEY SHARE OF x</code>, once per deleted row. Without an index on <code>orders.customer_id</code>, this is a full scan of <code>orders</code> for each customer you delete.</li>
+</ul>
+<table>
+<tr><th>ON DELETE action</th><th>What happens to the orders of a deleted customer</th></tr>
+<tr><td><code>NO ACTION</code> (default)</td><td>The delete fails if orders still point to the customer. The check can be deferred to commit with <code>DEFERRABLE</code>, so later commands in the transaction can fix it first.</td></tr>
+<tr><td><code>RESTRICT</code></td><td>The delete fails. The docs: it "does not allow the check to be deferred".</td></tr>
+<tr><td><code>CASCADE</code></td><td>The orders are deleted too. Their own foreign keys then apply, so a cascade can travel down many tables.</td></tr>
+<tr><td><code>SET NULL</code></td><td>The orders stay, with <code>customer_id</code> set to NULL. It fails if the column is <code>NOT NULL</code>.</td></tr>
+<tr><td><code>SET DEFAULT</code></td><td>The orders get the column default. It fails if no customer has that default value.</td></tr>
+</table>
+<p><b>NULL skips the check.</b> The docs: "a referencing row need not satisfy the foreign key constraint if any of its referencing columns are null". That is how guest order 105 exists. If an order must have a customer, declare <code>customer_id bigint NOT NULL REFERENCES customers</code>. For a multicolumn key, <code>MATCH FULL</code> rejects a row where some key columns are NULL and others are not.</p>
+
+<div class="lab" id="c2-lab">
+ <div class="t">Lab: the foreign key at work</div>
+ <p class="hint">Blue lines are the stored links, <code>orders.customer_id → customers.id</code>. Pick an ON DELETE action and run a statement. Each statement is atomic: if a check fails, nothing changes. Try deleting Ana with NO ACTION, then with CASCADE and SET NULL. Turn the index off and watch what the check has to read.</p>
+ <div class="bar">
+  <label>ON DELETE <select id="c2-act"><option>NO ACTION</option><option>RESTRICT</option><option>CASCADE</option><option>SET NULL</option></select></label>
+  <label><input type="checkbox" id="c2-ix" checked> index on orders(customer_id)</label>
+ </div>
+ <div class="bar">
+  <select id="c2-stmt">
+   <option value="i3">INSERT INTO orders (id, customer_id, total) VALUES (106, 3, 30);</option>
+   <option value="i9">INSERT INTO orders (id, customer_id, total) VALUES (106, 9, 30);</option>
+   <option value="in">INSERT INTO orders (id, customer_id, total) VALUES (106, NULL, 30);</option>
+   <option value="d4">DELETE FROM customers WHERE id = 4;   -- Dara, no orders</option>
+   <option value="d1">DELETE FROM customers WHERE id = 1;   -- Ana, 2 orders</option>
+   <option value="u2">UPDATE customers SET id = 20 WHERE id = 2;   -- Ben, 1 order</option>
+  </select>
+  <button class="pri" id="c2-run">Run</button><button id="c2-reset">Reset data</button>
+ </div>
+ <div id="c2-view"></div>
+ <div class="log" id="c2-log" style="height:150px"></div>
+</div>
+<p>The row counts in the lab log are for the sample data. At an example scale of 1,000,000 orders, the unindexed check reads the whole table once per deleted customer. The fix is one statement: <code>CREATE INDEX CONCURRENTLY orders_customer_id_idx ON orders (customer_id);</code>. The same index makes the join "orders of customer 42" fast (chapter 15).</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c3" data-title="Relationship shapes: 1:1, 1:N, M:N">
+<h2>3. Relationship shapes: one-to-one, one-to-many, many-to-many</h2>
+<div class="topics">Covers: cardinality, optional vs required side, where the foreign key lives for 1:1, 1:N and M:N, junction tables and their composite key, attributes of a relationship, self-referencing relations, crow's foot notation, wrong placements and the problems they cause. Sources: PostgreSQL 18 docs "Constraints" (§5.5.5, incl. the <code>order_items</code> many-to-many example and the self-referential <code>tree</code> example). Crow's foot notation is a common modelling convention, not part of SQL. Checked 2026-10-01.</div>
+<p class="lead">A <b>relationship</b> says how many rows of one table can link to one row of another. There are three shapes. <b>One-to-one</b>: at most one partner on each side. <b>One-to-many</b>: one parent, many children. <b>Many-to-many</b>: many on both sides. The shape decides where the foreign key goes, and the shape of every join result.</p>
+
+<h3>One rule places every foreign key</h3>
+<p>A column holds one value per row. So a foreign key column can point to at most <b>one</b> row. Put it on the side that has one partner.</p>
+<ul>
+<li><b>One-to-many</b>: each order has one customer. So <code>customer_id</code> goes in <code>orders</code>, the "many" side. The "one" side stores nothing.</li>
+<li><b>One-to-one</b>: a foreign key that is also <code>UNIQUE</code> (or the primary key). The uniqueness stops a second child row for the same parent.</li>
+<li><b>Many-to-many</b>: neither side has one partner, so neither side can hold the key. You add a third table, the <b>junction table</b>, with one row per link.</li>
+</ul>
+
+<h3>Building a many-to-many relation</h3>
+<div class="build">
+ <div class="stage col">
+  <div class="row mid">
+   <div class="n data" data-s="1">orders<small>PK id</small></div>
+   <div class="ar" data-s="2">? ⟷ ?</div>
+   <div class="n data" data-s="1">products<small>PK id</small></div>
+  </div>
+  <div class="n bad" data-s="2">orders.product_id?<small>one product per order only</small></div>
+  <div class="row mid" data-s="3">
+   <div class="n data">orders</div><div class="ar">1 → N</div>
+   <div class="n svc">order_items<small>order_id · product_id</small></div>
+   <div class="ar">N ← 1</div><div class="n data">products</div>
+  </div>
+  <div class="n edge" data-s="4">PRIMARY KEY (order_id, product_id)<small>one row per pair</small></div>
+  <div class="n msg" data-s="5">qty · price<small>facts about the pair</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">An order holds many products. A product is in many orders. This is many-to-many.</p>
+  <p class="cap" data-s="2">A <code>product_id</code> column in <code>orders</code> holds one value, so an order could have one product only. A list of ids in one column breaks first normal form. You cannot put a foreign key or an index on each element.</p>
+  <p class="cap" data-s="3">The junction table <code>order_items</code> turns one many-to-many relation into two one-to-many relations. Each row is one link: this product is in this order.</p>
+  <p class="cap" data-s="4">A composite primary key on the two foreign keys stops the same pair twice. The PostgreSQL docs use this exact table as their many-to-many example.</p>
+  <p class="cap" data-s="5">The junction row is also the place for facts about the link. <code>qty</code> and the <code>price</code> paid belong to "this product in this order", not to the order or to the product alone.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<h3>Required or optional</h3>
+<p>Each end of a relationship also has a minimum: zero or one. In <code>customers → orders</code>, a customer can have zero orders (Dara). Can an order have zero customers? Only if <code>customer_id</code> allows NULL. In acmeshop it does, for guest checkout. <code>NOT NULL</code> on the foreign key makes the parent required. The database cannot enforce "a customer has at least one order" with a plain constraint. That minimum lives in application code or in a deferred trigger.</p>
+<p>These minimums decide which join you need. If the child side can be empty, an INNER JOIN drops the parent (Dara disappears). If the foreign key can be NULL, an INNER JOIN drops the child (order 105 disappears). Chapters 5 to 7 show both.</p>
+
+<div class="lab" id="c3-lab">
+ <div class="t">Lab: relationship builder</div>
+ <p class="hint">Pick a shape. The diagram uses crow's foot notation: a bar means "one", a circle means "zero allowed", a three-line foot means "many". Then pick where to put the foreign key. The wrong places show what breaks.</p>
+ <div class="bar"><label>Shape <select id="c3-shape"><option value="11">one-to-one: customer and settings</option><option value="1n" selected>one-to-many: customer and orders</option><option value="nm">many-to-many: orders and products</option><option value="self">self: employee and manager</option></select></label>
+ <label>Foreign key placement <select id="c3-place"></select></label>
+ <label id="c3-nnw"><input type="checkbox" id="c3-nn"> foreign key NOT NULL</label></div>
+ <div id="c3-erd"></div>
+ <pre id="c3-ddl" class="sqlbox"></pre>
+ <div id="c3-rows"></div>
+ <div id="c3-verdict" class="note"></div>
+</div>
+
+<h3>Summary</h3>
+<table>
+<tr><th>Shape</th><th>Foreign key lives in</th><th>Constraint that makes the shape</th><th>Example</th></tr>
+<tr><td>1 : 1</td><td>either table, usually the optional or rarely read one</td><td><code>REFERENCES</code> + <code>UNIQUE</code> (or it is the primary key)</td><td><code>customer_settings.customer_id</code></td></tr>
+<tr><td>1 : N</td><td>the "many" table</td><td><code>REFERENCES</code>, plus <code>NOT NULL</code> if the parent is required</td><td><code>orders.customer_id</code></td></tr>
+<tr><td>M : N</td><td>a junction table, two foreign keys</td><td>two <code>REFERENCES</code> + <code>PRIMARY KEY</code> on both</td><td><code>order_items(order_id, product_id)</code></td></tr>
+<tr><td>self</td><td>the same table</td><td><code>REFERENCES</code> to its own key, nullable at the top</td><td><code>employees.manager_id</code></td></tr>
+</table>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c4" data-title="What a join does: the pair model">
+<h2>4. What a join does: the pair model</h2>
+<div class="topics">Covers: join as every pair (cross product) filtered by ON, TRUE / FALSE / UNKNOWN, outer joins adding back unmatched rows, why a left row can appear many times, row count bounds, why Venn diagrams mislead, logical model vs real execution. Sources: PostgreSQL 18 docs "Table Expressions" (§7.2.1.1 Joined Tables). Checked 2026-10-01.</div>
+<p class="lead">A <b>join</b> combines two tables into one result. Each result row is a <b>pair</b>: one row from the left table next to one row from the right table. The join condition in <code>ON</code> decides which pairs to keep. Outer joins then add back rows that found no partner, with NULL on the missing side.</p>
+
+<h3>Four steps that define every join</h3>
+<p>This is the logical meaning, the rule for which rows come out. It is not how the database runs it. Chapter 14 shows the real algorithms, which give the same rows with much less work.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="row mid"><div class="n data" data-s="1">customers<small>4 rows</small></div><div class="n data" data-s="1">orders<small>5 rows</small></div></div>
+  <div class="ar" data-s="2">↓</div>
+  <div class="n msg" data-s="2">every pair<small>4 × 5 = 20 pairs (CROSS JOIN)</small></div>
+  <div class="ar" data-s="3">↓ test ON for each pair</div>
+  <div class="n svc" data-s="3">keep pairs where ON is TRUE<small>INNER JOIN: 4 pairs</small></div>
+  <div class="ar" data-s="4">↓</div>
+  <div class="n edge" data-s="4">add unmatched rows with NULLs<small>LEFT: + Dara · RIGHT: + order 105 · FULL: + both</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">Two inputs. A join always works on two row sets. A join of three tables is two joins: the first result becomes the left input of the second.</p>
+  <p class="cap" data-s="2">Build every pair. The docs: for a CROSS JOIN, "If the tables have N and M rows respectively, the joined table will have N * M rows."</p>
+  <p class="cap" data-s="3">Test the ON condition on each pair. Keep the pair only if the result is TRUE. FALSE and UNKNOWN (from NULL) both drop it. This is the INNER JOIN. The docs: "the joined table has a row for each row in T2 that satisfies the join condition with R1."</p>
+  <p class="cap" data-s="4">Outer joins run the inner join first, then add each row that matched nothing, with NULL in the other table's columns. So a LEFT JOIN "always has at least one row for each row in T1" (docs).</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="c4-lab">
+ <div class="t">Lab: the join machine</div>
+ <p class="hint">Press <b>Next pair</b> to test one pair at a time, or <b>Play</b>. The dashed line is the pair under test. Green lines are kept pairs. The grid shows all 20 pairs. Then switch the join type and run it again. Watch Ana appear twice, and watch where Dara and order 105 go.</p>
+</div>
+
+<h3>Why a row appears more than once</h3>
+<p>The result is a list of pairs, not a list of customers. Ana has two orders, so she is in two kept pairs, and she appears twice. This is correct, and it is the source of the most common join bug: you join, then add up a column, and the sum counts some rows twice (chapter 12). Before you write a join, ask for each table: "for one row of the other side, how many rows can match here?" The answer is the shape from chapter 3.</p>
+
+<h3>How many rows can come out</h3>
+<p>For a left table of N rows and a right table of M rows:</p>
+<table>
+<tr><th>Join</th><th>Fewest rows</th><th>Most rows</th><th>With the sample data (N = 4, M = 5)</th></tr>
+<tr><td>CROSS</td><td>N × M</td><td>N × M</td><td>20</td></tr>
+<tr><td>INNER</td><td>0</td><td>N × M</td><td>4</td></tr>
+<tr><td>LEFT</td><td>N</td><td>N × M (when M ≥ 1)</td><td>5 (4 pairs + Dara)</td></tr>
+<tr><td>RIGHT</td><td>M</td><td>N × M (when N ≥ 1)</td><td>5 (4 pairs + order 105)</td></tr>
+<tr><td>FULL</td><td>the larger of N and M</td><td>N × M or N + M, whichever is larger</td><td>6</td></tr>
+<tr><td>semi-join (EXISTS)</td><td>0</td><td>N</td><td>3</td></tr>
+<tr><td>anti-join (NOT EXISTS)</td><td>0</td><td>N</td><td>1</td></tr>
+</table>
+<p>If the join follows a foreign key to a key (each order to its one customer), the "many" side cannot multiply. <code>orders JOIN customers</code> returns at most one row per order. That is the safe direction. Joining from the "one" side to the "many" side multiplies the "one" side.</p>
+
+<h3>Why the Venn diagram misleads</h3>
+<p>Joins are often drawn as two overlapping circles. The picture is right about one thing: which unmatched rows an outer join keeps. It is wrong about three others.</p>
+<ul>
+<li>A Venn diagram shows sets of the <i>same</i> kind of thing. <code>customers</code> and <code>orders</code> are different things. The middle is not "rows in both tables". It is <b>pairs</b>.</li>
+<li>The middle can hold more rows than either circle. One left row can be in many pairs.</li>
+<li>A CROSS JOIN has no Venn picture at all. A non-equality condition, such as <code>ON o.total &gt; c.limit</code>, has none either.</li>
+</ul>
+<p>The lab draws the circles with real counts. The middle number is the count of pairs. The pair grid is the full picture. The Venn is a summary of it.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c5" data-title="INNER JOIN">
+<h2>5. INNER JOIN</h2>
+<div class="topics">Covers: INNER JOIN syntax and meaning, JOIN = INNER JOIN, rows that disappear (parents with no children, children with a NULL or orphan key), result row count per left row, the comma syntax, joining on more than one column, table aliases. Sources: PostgreSQL 18 docs "Table Expressions" (§7.2.1.1), "SELECT" (FROM Clause). Checked 2026-10-01.</div>
+<p class="lead">An <b>INNER JOIN</b> returns only the pairs where the ON condition is TRUE. A row with no partner does not appear at all. <code>JOIN</code> alone means <code>INNER JOIN</code>. The docs: "<code>INNER</code> is the default".</p>
+<pre>SELECT c.name, o.id AS order_id, o.total
+FROM customers AS c
+JOIN orders    AS o ON o.customer_id = c.id;</pre>
+<p><code>c</code> and <code>o</code> are table aliases. They are short names for the tables in this query. You need them when two tables have a column with the same name, like <code>id</code>, and you always need them in a self join (chapter 9).</p>
+
+<h3>Who disappears</h3>
+<div class="build">
+ <div class="stage col">
+  <div class="n svc" data-s="1">4 kept pairs<small>Ana·101, Ana·102, Ben·103, Chen·104</small></div>
+  <div class="row" data-s="2"><div class="n bad">Dara<small>no order points to her</small></div></div>
+  <div class="row" data-s="3"><div class="n bad">order 105<small>customer_id is NULL: NULL = 1 is UNKNOWN</small></div></div>
+  <div class="n data" data-s="4">rows per customer = number of matching orders<small>Ana 2 · Ben 1 · Chen 1 · Dara 0</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The kept pairs. Each result row has all columns of one customer followed by all columns of one order.</p>
+  <p class="cap" data-s="2">A parent with no children is dropped. "List customers and their orders" with INNER JOIN silently leaves out every customer who never ordered. If the report must show them, you need a LEFT JOIN (chapter 6).</p>
+  <p class="cap" data-s="3">A child with a NULL foreign key is dropped too. The test <code>NULL = 1</code> is not FALSE, it is UNKNOWN, and a join keeps only TRUE. An orphan key, like <code>customer_id = 9</code> in a table with no foreign key, is dropped the same way.</p>
+  <p class="cap" data-s="4">Each left row appears once per matching right row. The total is the sum of those counts: 2 + 1 + 1 + 0 = 4.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="c5-lab">
+ <div class="t">Lab: edit the data, watch the INNER JOIN</div>
+ <p class="hint">Click a <code>customer_id</code> cell in <code>orders</code> to change it (it cycles 1, 2, 3, 4, NULL). Add or remove orders. Give Dara an order and watch her appear. Point every order at Ana and watch her fill the result.</p>
+</div>
+
+<h3>Other ways to write it</h3>
+<pre>-- the same inner join, written three ways
+FROM customers c JOIN orders o ON o.customer_id = c.id
+FROM customers c INNER JOIN orders o ON o.customer_id = c.id
+FROM customers c, orders o WHERE o.customer_id = c.id     -- comma = CROSS JOIN, then WHERE filters</pre>
+<p>The comma form gives the same rows for an inner join. It has one real risk. If you forget the WHERE line, you get the full cross product and no error (chapter 8). The <code>JOIN ... ON</code> form keeps each condition next to its table, and a missing <code>ON</code> is a syntax error. Use it.</p>
+<p>A join condition can test more than one column. A composite key needs all its columns: <code>ON oi.order_id = s.order_id AND oi.product_id = s.product_id</code>. If you test only one of them, each row pairs with every row that shares that one column, and the result multiplies.</p>
+<p>For an inner join, the order of the tables does not change the result, only the column order. <code>customers JOIN orders</code> and <code>orders JOIN customers</code> return the same pairs. The planner is free to pick the order it runs them in (chapter 14).</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c6" data-title="LEFT and RIGHT JOIN">
+<h2>6. LEFT JOIN and RIGHT JOIN</h2>
+<div class="topics">Covers: LEFT OUTER JOIN, RIGHT OUTER JOIN, NULL padding, RIGHT as a mirrored LEFT, ON vs WHERE in outer joins, a WHERE test that turns a LEFT JOIN into an inner join, an INNER JOIN after a LEFT JOIN, parenthesised joins. Sources: PostgreSQL 18 docs "Table Expressions" (§7.2.1.1, §7.2.2); PostgreSQL source <code>src/backend/optimizer/prep/prepjointree.c</code> (<code>reduce_outer_joins</code>). Checked 2026-10-01.</div>
+<p class="lead">A <b>LEFT JOIN</b> returns every pair an inner join returns, plus each left row that matched nothing, once, with NULL in every right-side column. The left table is never reduced. A <b>RIGHT JOIN</b> is the same with the sides swapped.</p>
+<pre>SELECT c.name, o.id AS order_id, o.total
+FROM customers c
+LEFT JOIN orders o ON o.customer_id = c.id;     -- Dara is kept: (Dara, NULL, NULL)</pre>
+<p>The docs: "First, an inner join is performed. Then, for each row in T1 that does not satisfy the join condition with any row in T2, a joined row is added with null values in columns of T2." <code>LEFT OUTER JOIN</code> is the same thing. The word <code>OUTER</code> is optional.</p>
+<p><code>a RIGHT JOIN b</code> returns the same rows as <code>b LEFT JOIN a</code>, with the columns in a different order. Most teams write only LEFT JOIN, so the table that is kept whole is always the first one you read.</p>
+
+<h3>ON and WHERE are not the same in an outer join</h3>
+<p>For an inner join, a test in ON and the same test in WHERE give the same rows. For an outer join they do not. The docs: "a restriction placed in the <code>ON</code> clause is processed <i>before</i> the join, while a restriction placed in the <code>WHERE</code> clause is processed <i>after</i> the join."</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">customers LEFT JOIN orders<small>ON o.customer_id = c.id AND o.total &gt; 100</small></div>
+  <div class="n svc" data-s="2">result: Ana·101, Ben·103, Chen·NULL, Dara·NULL<small>every customer kept, only big orders attached</small></div>
+  <div class="n data" data-s="3">customers LEFT JOIN orders ON o.customer_id = c.id<small>WHERE o.total &gt; 100</small></div>
+  <div class="n bad" data-s="4">result: Ana·101, Ben·103<small>Chen and Dara are gone</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The test is in ON. It decides which orders count as a match. A customer whose orders all fail it has no match.</p>
+  <p class="cap" data-s="2">So Chen (only order 80) and Dara (no orders) are padded with NULL and kept. This answers "every customer, with their big orders if any".</p>
+  <p class="cap" data-s="3">The same test in WHERE runs after the join, on the finished rows.</p>
+  <p class="cap" data-s="4">Dara's padded row has <code>o.total</code> = NULL. <code>NULL &gt; 100</code> is UNKNOWN, and WHERE drops it. Chen's row (80) fails too. The LEFT JOIN added rows and WHERE took them away again. The query now acts as an inner join. PostgreSQL notices this and plans it as one (<code>reduce_outer_joins</code>).</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<p>Rule of thumb: a test on the <i>kept</i> table (<code>c.city = 'Lyon'</code>) goes in WHERE. A test on the <i>optional</i> table goes in ON, unless you mean to drop the rows. The one WHERE test on the optional side that keeps its meaning is <code>IS NULL</code> on a <code>NOT NULL</code> column: <code>WHERE o.id IS NULL</code> finds the rows that had no match (the anti-join, chapter 10).</p>
+
+<div class="lab" id="c6-lab">
+ <div class="t">Lab: LEFT, RIGHT, ON and WHERE</div>
+ <p class="hint">Yellow result rows are left rows padded with NULL. Purple rows are right rows padded with NULL. Move <code>o.total &gt; 100</code> from ON to WHERE and watch the struck-out rows. Try <code>WHERE o.id IS NULL</code> to see only the unmatched customers.</p>
+</div>
+
+<h3>An inner join after a left join</h3>
+<p>Joins run from left to right. Each join takes the result so far as its left input. So a later INNER JOIN can remove rows that an earlier LEFT JOIN kept:</p>
+<pre>SELECT c.name, o.id, oi.product
+FROM customers c
+LEFT JOIN orders o       ON o.customer_id = c.id
+JOIN order_items oi      ON oi.order_id = o.id;     -- Dara: o.id is NULL, NULL = x is UNKNOWN, row dropped</pre>
+<p>Make the second join LEFT as well, or put the inner join in parentheses so it runs first: <code>LEFT JOIN (orders o JOIN order_items oi ON oi.order_id = o.id) ON o.customer_id = c.id</code>. The two fixes mean different things. The lab shows the difference.</p>
+<div class="lab" id="c6b-lab">
+ <div class="t">Lab: a chain of three tables</div>
+ <p class="hint">Order 102 has no items. Pick how the second join is written and follow the lines. The result shows who survives.</p>
+ <div class="bar"><label>Second join <select id="c6b-mode">
+  <option value="inner">LEFT JOIN orders ... JOIN order_items</option>
+  <option value="left">LEFT JOIN orders ... LEFT JOIN order_items</option>
+  <option value="nested">LEFT JOIN (orders JOIN order_items) ...</option></select></label></div>
+ <pre id="c6b-sql" class="sqlbox"></pre>
+ <div id="c6b-view"></div>
+ <div class="bar" id="c6b-stats"></div>
+ <div id="c6b-res"></div>
+ <p id="c6b-note" class="note"></p>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c7" data-title="FULL OUTER JOIN">
+<h2>7. FULL OUTER JOIN</h2>
+<div class="topics">Covers: FULL OUTER JOIN meaning, reconciling two lists, COALESCE on the key, classifying rows by which side is NULL, the equality-only limit in PostgreSQL, when a FULL JOIN is a smell. Sources: PostgreSQL 18 docs "Table Expressions" (§7.2.1.1), "Conditional Expressions" (COALESCE); PostgreSQL source <code>src/backend/optimizer/path/joinpath.c</code> for the FULL JOIN error text. Checked 2026-10-01.</div>
+<p class="lead">A <b>FULL OUTER JOIN</b> returns every matched pair, plus every unmatched row from <i>both</i> sides, padded with NULL. No row from either table is lost. Its main use is to compare two lists and find what is missing on each side.</p>
+<p>The example: acmeshop gets a daily file of card payments from its payment provider. It loads the file into a table <code>payments</code> with no foreign key, because the file can contain anything. Now it needs three lists: paid orders, unpaid orders, and payments for orders it does not know.</p>
+<pre>SELECT COALESCE(o.id, p.order_id) AS order_ref,
+       o.total, p.amount,
+       CASE WHEN o.id IS NULL  THEN 'payment for unknown order'
+            WHEN p.id IS NULL  THEN 'not paid'
+            WHEN p.amount &lt;&gt; o.total THEN 'amount differs'
+            ELSE 'ok' END AS status
+FROM orders o
+FULL JOIN payments p ON p.order_id = o.id;</pre>
+<div class="build">
+ <div class="stage col">
+  <div class="n svc" data-s="1">matched pairs<small>order and payment agree on the key</small></div>
+  <div class="n edge" data-s="2">+ orders with no payment<small>p.* is NULL → not paid</small></div>
+  <div class="n msg" data-s="3">+ payments with no order<small>o.* is NULL → unknown order</small></div>
+  <div class="n data" data-s="4">COALESCE(o.id, p.order_id)<small>one key column that is never NULL</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">First the inner join, the pairs where <code>p.order_id = o.id</code>. Inside this set, compare the amounts. A short payment shows up here as "amount differs".</p>
+  <p class="cap" data-s="2">Then each order that matched nothing, once, with NULL payment columns. A LEFT JOIN would stop here.</p>
+  <p class="cap" data-s="3">Then each payment that matched nothing, with NULL order columns. This is what only a FULL JOIN gives in one pass.</p>
+  <p class="cap" data-s="4">The key is NULL on one side in every padded row. <code>COALESCE</code> returns its first argument that is not NULL, so it gives one key column for all rows. <code>USING (col)</code> does the same for you if both columns have the same name.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="c7-lab">
+ <div class="t">Lab: reconcile orders and payments</div>
+ <p class="hint">Payment 4 is for order 999, which does not exist. Payment 2 is short. Compare FULL with LEFT, RIGHT and INNER, and see which problem each one hides. Click an <code>order_id</code> in <code>payments</code> to change it.</p>
+</div>
+
+<h3>Limits and warnings</h3>
+<ul>
+<li>In PostgreSQL a FULL JOIN condition must be an equality that can run as a hash join or a merge join. Anything else fails with "FULL JOIN is only supported with merge-joinable or hash-joinable join conditions". The reason is in chapter 14: Nested Loop cannot produce the unmatched inner rows.</li>
+<li>Every test in WHERE on either side removes padded rows, for the same reason as in chapter 6. Put filters in subqueries before the join, or test with <code>IS NULL</code>.</li>
+<li>If you use FULL JOIN to glue two tables that have a foreign key, one side can never be unmatched. The FULL JOIN then does the work of a LEFT JOIN at a higher cost, and it limits the planner, because a FULL JOIN fixes the join order. Use it when both sides can really have rows the other does not.</li>
+</ul>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c8" data-title="CROSS JOIN">
+<h2>8. CROSS JOIN</h2>
+<div class="topics">Covers: CROSS JOIN as the full cross product, N × M growth, real uses (variant grids, calendar × category report skeletons, one-row parameter tables), the accidental cross join (comma without WHERE, missing join column), equivalences with ON TRUE and the comma. Sources: PostgreSQL 18 docs "Table Expressions" (§7.2.1.1), "Set Returning Functions" (<code>generate_series</code>). Checked 2026-10-01.</div>
+<p class="lead">A <b>CROSS JOIN</b> returns every pair of rows, with no condition. For N left rows and M right rows it returns N × M rows. The docs: <code>FROM T1 CROSS JOIN T2</code> "is equivalent to <code>FROM T1 INNER JOIN T2 ON TRUE</code>" and to <code>FROM T1, T2</code>.</p>
+
+<h3>When you want it</h3>
+<ul>
+<li><b>All combinations.</b> Sizes × colours gives every product variant to create.</li>
+<li><b>A report skeleton.</b> Every day of the month × every category, then a LEFT JOIN to the sales. Days with no sales then show 0 instead of missing. <code>generate_series('2026-09-01'::date, '2026-09-30', '1 day')</code> makes the days.</li>
+<li><b>A one-row table of settings.</b> <code>CROSS JOIN (SELECT 0.2 AS vat_rate) s</code> puts one value next to every row. With one row on one side, the result has the same rows as the other side.</li>
+</ul>
+<pre>SELECT d::date AS day, cat.name, COALESCE(sum(o.total), 0) AS sales
+FROM generate_series('2026-09-01'::date, '2026-09-30', '1 day') AS d
+CROSS JOIN categories cat
+LEFT JOIN orders o ON o.created_at::date = d::date AND o.category_id = cat.id
+GROUP BY 1, 2
+ORDER BY 1, 2;</pre>
+
+<div class="lab" id="c8-lab">
+ <div class="t">Lab: build a grid of variants</div>
+ <p class="hint">Tick sizes and colours. Each tick adds a whole row or column of pairs to the result.</p>
+ <div class="bar" id="c8-pick"></div>
+ <div class="grid2"><div id="c8-grid"></div><div id="c8-res"></div></div>
+ <div class="bar" id="c8-stats"></div>
+</div>
+
+<h3>When you do not want it</h3>
+<p>The cross product grows as the product of the table sizes. An accidental one is the most expensive mistake a single line of SQL can make.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">FROM customers c, orders o<small>comma = CROSS JOIN</small></div>
+  <div class="n svc" data-s="2">WHERE o.customer_id = c.id<small>turns it into an inner join</small></div>
+  <div class="n bad" data-s="3">forget the WHERE line<small>4 × 5 = 20 rows, no error</small></div>
+  <div class="n bad" data-s="4">at scale<small>100,000 × 1,000,000 = 10¹¹ rows</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The comma in FROM makes a cross product. The join exists only because of a line in WHERE.</p>
+  <p class="cap" data-s="2">With the WHERE line, you get the inner join from chapter 5.</p>
+  <p class="cap" data-s="3">Without it, every customer is paired with every order. The query runs. The numbers look plausible on a small test database.</p>
+  <p class="cap" data-s="4">On production size (example counts), the query runs for hours or fills the disk with temporary files. A related bug: a join on only part of a composite key, or on a low-variety column such as <code>status</code>, gives a partial cross product.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<div class="lab" id="c8b-lab">
+ <div class="t">Lab: how fast a cross product grows</div>
+ <p class="hint">Move the sliders. The row size is an example of 100 bytes.</p>
+ <div class="bar"><label>Left rows <input type="range" id="c8b-n" min="0" max="6" step="0.25" value="2"> <b id="c8b-nv"></b></label><label>Right rows <input type="range" id="c8b-m" min="0" max="6" step="0.25" value="3"> <b id="c8b-mv"></b></label></div>
+ <div id="c8b-out"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c9" data-title="SELF JOIN">
+<h2>9. SELF JOIN</h2>
+<div class="topics">Covers: self join as one table under two aliases, self-referencing foreign keys (tree data), employee and manager, the root row and LEFT JOIN, two levels, pairs of rows in one table, removing self pairs and mirrored pairs, when to use a recursive CTE instead. Sources: PostgreSQL 18 docs "Constraints" (§5.5.5, self-referential foreign key), "Table Expressions" (§7.2.1.2 Table and Column Aliases), "WITH Queries" (§7.8, recursive queries). Checked 2026-10-01.</div>
+<p class="lead">A <b>self join</b> is a table joined to itself. It is not a special join type. It is any join where both inputs are the same table under two different aliases. You use it when a row relates to another row of the same table, or when you compare rows of one table in pairs.</p>
+
+<h3>A table that points to itself</h3>
+<p>The docs call this a <i>self-referential</i> foreign key: "if you want rows of a table to represent nodes of a tree structure". In acmeshop, each employee has a manager, and the manager is also an employee.</p>
+<pre>CREATE TABLE employees (
+  id         bigint PRIMARY KEY,
+  name       text NOT NULL,
+  dept       text NOT NULL,
+  manager_id bigint REFERENCES employees (id)   -- NULL for the top of the tree
+);</pre>
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">Maya<small>id 1 · manager_id NULL</small></div>
+  <div class="ar" data-s="2">↓</div>
+  <div class="row" data-s="2"><div class="n svc">Omar<small>id 2 · manager 1</small></div><div class="n svc">Lina<small>id 3 · manager 1</small></div></div>
+  <div class="ar" data-s="3">↓</div>
+  <div class="row" data-s="3"><div class="n data">Sam<small>manager 2</small></div><div class="n data">Ivy<small>manager 2</small></div><div class="n data">Noor<small>manager 3</small></div></div>
+  <div class="row mid" data-s="4"><div class="n edge">employees AS e<small>the employee</small></div><div class="ar">e.manager_id = m.id →</div><div class="n edge">employees AS m<small>the manager</small></div></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The root. Maya has no manager, so <code>manager_id</code> is NULL. The foreign key allows it, because NULL skips the check.</p>
+  <p class="cap" data-s="2">Omar and Lina store <code>manager_id = 1</code>. This is a one-to-many relation, like customers and orders, but both ends are in the same table.</p>
+  <p class="cap" data-s="3">The next level stores 2 or 3. The table holds a tree of any depth with one column.</p>
+  <p class="cap" data-s="4">To see a name next to the manager's name, read the table twice. Alias <code>e</code> plays the child role, alias <code>m</code> plays the parent role. The database treats them as two inputs that happen to hold the same rows.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<pre>SELECT e.name AS employee, m.name AS manager
+FROM employees e
+LEFT JOIN employees m ON m.id = e.manager_id;    -- LEFT keeps Maya, with manager NULL</pre>
+<p>With an INNER JOIN, Maya disappears, because <code>NULL = m.id</code> is never TRUE. That is the same rule as guest order 105.</p>
+
+<h3>Pairs of rows in one table</h3>
+<p>The other use is comparing rows with each other. "Which employees work in the same department?" Join the table to itself on <code>dept</code>. Each employee then pairs with every employee of the department, including themself, and each pair comes twice, as (Omar, Sam) and (Sam, Omar).</p>
+<ul>
+<li><code>a.id &lt;&gt; b.id</code> removes the self pairs. Each pair still comes in both orders.</li>
+<li><code>a.id &lt; b.id</code> removes the self pairs and keeps one order of each pair. A department with k people then gives k × (k − 1) / 2 pairs.</li>
+</ul>
+
+<div class="lab" id="c9-lab">
+ <div class="t">Lab: the self join</div>
+ <p class="hint">Both boxes are the same table. Start with the manager join and compare INNER with LEFT. Then pick the department pairs and add <code>&lt;&gt;</code> and <code>&lt;</code>. Count the lines each time.</p>
+</div>
+
+<h3>Deeper levels</h3>
+<p>Each extra level is one more alias. The grand-manager is <code>LEFT JOIN employees g ON g.id = m.manager_id</code>. That works when the depth is fixed and small. For "all managers above Sam, however many" you need a recursive query, <code>WITH RECURSIVE</code>, which repeats the self join until no new rows come out (docs §7.8). A cycle in the data, such as Omar managing Maya, would make it run forever unless you add a <code>CYCLE</code> clause or a depth limit.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c10" data-title="Semi-join and anti-join">
+<h2>10. Semi-join and anti-join: EXISTS, IN, NOT EXISTS, NOT IN</h2>
+<div class="topics">Covers: semi-join (EXISTS, IN), anti-join (NOT EXISTS, LEFT JOIN ... IS NULL, NOT IN), why JOIN + DISTINCT is not a semi-join, the NOT IN and NULL trap, which column to test for IS NULL, EXCEPT. Sources: PostgreSQL 18 docs "Subquery Expressions" (§9.24.1 EXISTS, §9.24.2 IN, §9.24.3 NOT IN), "Table Expressions" (§7.2.1.1); PostgreSQL source <code>src/backend/commands/explain.c</code> for Semi and Anti join node names. Checked 2026-10-01.</div>
+<p class="lead">A <b>semi-join</b> returns each left row that has <i>at least one</i> match, once, with no columns from the right side. An <b>anti-join</b> returns each left row that has <i>no</i> match. SQL has no <code>SEMI JOIN</code> keyword. You write them with <code>EXISTS</code>, <code>IN</code> and <code>NOT EXISTS</code>, and the planner runs them as join nodes named <code>Semi Join</code> and <code>Anti Join</code>.</p>
+
+<h3>"Customers who ordered" is not a join</h3>
+<p>A join returns pairs, so Ana appears twice. You want Ana once. A semi-join answers the question "is there a match?" and stops at the first one. The docs: the subquery "will generally only be executed long enough to determine whether at least one row is returned".</p>
+<pre>SELECT c.* FROM customers c
+WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);</pre>
+<p><code>SELECT DISTINCT c.* FROM customers c JOIN orders o ...</code> gives the same rows but does more work. It makes every pair, then sorts or hashes them to remove the copies. And if you select fewer columns, say only <code>c.name</code>, DISTINCT also merges two different customers who share a name. The select list inside EXISTS does not matter. The docs note the convention <code>EXISTS(SELECT 1 WHERE ...)</code>.</p>
+
+<h3>The anti-join and the NOT IN trap</h3>
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">c.id NOT IN (SELECT customer_id FROM orders)<small>list = 1, 1, 2, 3, NULL</small></div>
+  <div class="n msg" data-s="2">4 NOT IN (1, 2, 3, NULL)<small>= 4&lt;&gt;1 AND 4&lt;&gt;2 AND 4&lt;&gt;3 AND 4&lt;&gt;NULL</small></div>
+  <div class="n bad" data-s="3">TRUE AND TRUE AND TRUE AND UNKNOWN = UNKNOWN<small>Dara is not returned</small></div>
+  <div class="n svc" data-s="4">NOT EXISTS (... WHERE o.customer_id = c.id)<small>NULL row never matches, so it cannot block</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">"Customers with no orders." The subquery returns every <code>customer_id</code>, and guest order 105 adds a NULL.</p>
+  <p class="cap" data-s="2"><code>x NOT IN (list)</code> means "x is different from every element". SQL writes that as <code>&lt;&gt;</code> tests joined with AND.</p>
+  <p class="cap" data-s="3">One test compares with NULL and gives UNKNOWN. An AND with an UNKNOWN can never be TRUE. So NOT IN returns no rows at all, with no error. The docs: the result "will be null, not true" when "at least one right-hand row yields null".</p>
+  <p class="cap" data-s="4"><code>NOT EXISTS</code> asks "is there a row where the condition is TRUE?". The NULL row gives UNKNOWN, which is not TRUE, so it is simply not a match. Dara is returned. Use NOT EXISTS.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="c10-lab">
+ <div class="t">Lab: every way to write the question</div>
+ <p class="hint">Each card is one way to write the same question, run on the sample data. Remove the guest order and see NOT IN start to work. That is why the bug passes tests and fails in production.</p>
+ <div class="bar"><label>Question <select id="c10-q"><option value="semi">customers who ordered (semi-join)</option><option value="anti">customers who never ordered (anti-join)</option></select></label>
+ <label><input type="checkbox" id="c10-guest" checked> guest order 105 exists (customer_id NULL)</label>
+ <label><input type="checkbox" id="c10-nn"> subquery adds WHERE customer_id IS NOT NULL</label></div>
+ <div class="cards" id="c10-cards"></div>
+</div>
+
+<h3>LEFT JOIN ... IS NULL: test the right column</h3>
+<p><code>LEFT JOIN orders o ON o.customer_id = c.id WHERE o.id IS NULL</code> is a correct anti-join. The NULL in <code>o.id</code> can only come from padding, because <code>o.id</code> is the primary key and is never NULL in a real order. If you test a nullable column instead, such as <code>o.coupon_code IS NULL</code>, you also get customers whose real orders have no coupon. Test the primary key, or the join column.</p>
+<table>
+<tr><th>Form</th><th>Semi or anti</th><th>NULL-safe</th><th>Plan node</th></tr>
+<tr><td><code>EXISTS (subquery)</code></td><td>semi</td><td>yes</td><td>Semi Join</td></tr>
+<tr><td><code>x IN (subquery)</code></td><td>semi</td><td>yes (a NULL only fails to match)</td><td>Semi Join, or Join over a unique-ified subquery</td></tr>
+<tr><td><code>NOT EXISTS (subquery)</code></td><td>anti</td><td>yes</td><td>Anti Join</td></tr>
+<tr><td><code>LEFT JOIN ... WHERE right_pk IS NULL</code></td><td>anti</td><td>yes, if you test a NOT NULL column</td><td>Anti Join (the planner detects it)</td></tr>
+<tr><td><code>x NOT IN (subquery)</code></td><td>anti</td><td><b>no</b>: any NULL in the list gives zero rows</td><td>often a filter over a hashed subplan, not an Anti Join</td></tr>
+<tr><td><code>SELECT id FROM customers EXCEPT SELECT customer_id FROM orders</code></td><td>anti, on the key only</td><td>yes (EXCEPT treats NULLs as equal)</td><td>SetOp</td></tr>
+</table>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c11" data-title="NULL and joins">
+<h2>11. NULL and joins</h2>
+<div class="topics">Covers: three-valued logic (TRUE, FALSE, UNKNOWN), why NULL never matches in ON, joining on nullable columns, IS NOT DISTINCT FROM, NULLs added by outer joins vs NULLs stored in the table, COUNT(*) vs COUNT(column) after a LEFT JOIN, COALESCE, aggregates over padded rows. Sources: PostgreSQL 18 docs "Comparison Functions and Operators" (§9.2), "Aggregate Functions" (§9.21), "Table Expressions" (§7.2.1.1). Checked 2026-10-01.</div>
+<p class="lead"><b>NULL</b> means "no value" or "unknown value". Any comparison with NULL, even <code>NULL = NULL</code>, gives <b>UNKNOWN</b>, not TRUE. A join keeps a pair only when ON is TRUE, so a NULL join column never matches anything.</p>
+
+<h3>Three values, not two</h3>
+<p>SQL logic has TRUE, FALSE and UNKNOWN. ON, WHERE and HAVING keep a row only on TRUE. That makes UNKNOWN act like FALSE for filtering, but not inside NOT: <code>NOT UNKNOWN</code> is still UNKNOWN. That is the reason NOT IN fails in chapter 10.</p>
+<p>When you really want two NULLs to match, for example a composite key where a <code>region</code> column can be NULL, use <code>IS NOT DISTINCT FROM</code>. It treats NULL as a normal value that equals NULL (docs §9.2). Be careful. It can stop the planner from using a plain equality index, and a join on it can pair every NULL row on the left with every NULL row on the right.</p>
+<div class="lab" id="c11-lab">
+ <div class="t">Lab: compare with NULL</div>
+ <p class="hint">Pick an operator. Each cell is <code>a op b</code>. A join keeps the pair only in the TRUE cells.</p>
+ <div class="bar"><label>Operator <select id="c11-op"><option value="eq">a = b</option><option value="ne">a &lt;&gt; b</option><option value="nd">a IS NOT DISTINCT FROM b</option><option value="d">a IS DISTINCT FROM b</option><option value="neq">NOT (a = b)</option></select></label></div>
+ <div id="c11-grid"></div>
+ <p id="c11-note" class="hint"></p>
+</div>
+
+<h3>Two kinds of NULL in a result</h3>
+<p>After a LEFT JOIN, a NULL in <code>o.total</code> can mean two things. The order exists and its total is NULL. Or there was no order, and the join padded the row. SQL shows both the same way. To tell them apart, test a column that is never NULL in the table, usually the primary key: <code>o.id IS NULL</code> means "no match".</p>
+
+<h3>Counting after a LEFT JOIN</h3>
+<p>Aggregates see padded rows as normal rows. The docs (§9.21) give the rules: <code>count(*)</code> counts rows, <code>count(expr)</code> counts rows where expr is not NULL, and <code>sum</code> of no non-NULL values is NULL, not 0.</p>
+<pre>SELECT c.name, count(*), count(o.id), sum(o.total), COALESCE(sum(o.total), 0)
+FROM customers c LEFT JOIN orders o ON o.customer_id = c.id
+GROUP BY c.name;</pre>
+<div class="lab" id="c11b-lab">
+ <div class="t">Lab: aggregates over padded rows</div>
+ <p class="hint">Pick an aggregate. Dara's row is padded with NULL. Which aggregate gives her the right answer?</p>
+ <div class="bar"><label>Aggregate <select id="c11b-agg"><option value="cs">count(*)</option><option value="co">count(o.id)</option><option value="s">sum(o.total)</option><option value="cz">COALESCE(sum(o.total), 0)</option><option value="a">avg(o.total)</option></select></label></div>
+ <div class="grid2"><div id="c11b-rows"></div><div id="c11b-out"></div></div>
+ <p id="c11b-note" class="note"></p>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c12" data-title="Row multiplication (fan-out)">
+<h2>12. Row multiplication: joining two children at once</h2>
+<div class="topics">Covers: fan-out along one-to-many joins, the product of two independent children, wrong sums and counts with no error, why sum(DISTINCT) and count(DISTINCT) are not fixes, aggregating each child before the join, checking the grain of a query. Sources: PostgreSQL 18 docs "Table Expressions" (§7.2.1.1), "Aggregate Functions" (§9.21), "Subquery Expressions" (§9.24). Checked 2026-10-01.</div>
+<p class="lead"><b>Row multiplication</b>, also called fan-out, is what happens when you join a parent to two child tables in one query. Each row of one child pairs with each row of the other child of the same parent. Sums and counts over the result are then too big, and SQL gives no warning.</p>
+
+<h3>How it happens</h3>
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">order 101<small>1 row</small></div>
+  <div class="row" data-s="2"><div class="ar">JOIN order_items →</div><div class="n svc">3 item rows<small>101 repeats 3 times</small></div></div>
+  <div class="row" data-s="3"><div class="ar">JOIN payments →</div><div class="n msg">2 payment rows<small>each item row pairs with both</small></div></div>
+  <div class="n bad" data-s="4">3 × 2 = 6 rows<small>each item counted 2 times, each payment 3 times</small></div>
+  <div class="n svc" data-s="5">aggregate each child first, then join<small>1 row per order</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The grain of a query is "what one result row stands for". Here it starts as one row per order.</p>
+  <p class="cap" data-s="2">Join to <code>order_items</code>. The grain is now one row per item. That is correct, and order columns repeat once per item.</p>
+  <p class="cap" data-s="3">Join to <code>payments</code> through the same order. Items and payments have nothing to do with each other. The join still pairs every item row with every payment row of that order.</p>
+  <p class="cap" data-s="4"><code>sum(item price)</code> counts each item once per payment. <code>sum(amount)</code> counts each payment once per item. Both are wrong, and the more rows the children have, the more wrong they are.</p>
+  <p class="cap" data-s="5">The fix: reduce each child to one row per order in a subquery, then join those. Now every join is to at most one row, and nothing multiplies.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="c12-lab">
+ <div class="t">Lab: watch the sums go wrong</div>
+ <p class="hint">Move the sliders for order 101. The grid shows every row the naive join makes. Try 2 items at 25 each, then try the <code>sum(DISTINCT ...)</code> version.</p>
+ <div class="bar"><label>Items <input type="range" id="c12-i" min="0" max="4" value="3"> <b id="c12-iv"></b></label><label>Payments <input type="range" id="c12-p" min="0" max="4" value="2"> <b id="c12-pv"></b></label>
+ <label>Query <select id="c12-q"><option value="naive">join both, then aggregate</option><option value="dist">sum(DISTINCT ...)</option><option value="pre">aggregate first, then join</option></select></label></div>
+ <pre id="c12-sql" class="sqlbox"></pre>
+ <div class="grid2"><div id="c12-grid"></div><div id="c12-out"></div></div>
+</div>
+
+<pre>SELECT o.id, i.items_total, p.paid
+FROM orders o
+LEFT JOIN (SELECT order_id, sum(qty * price) AS items_total FROM order_items GROUP BY order_id) i ON i.order_id = o.id
+LEFT JOIN (SELECT order_id, sum(amount) AS paid FROM payments GROUP BY order_id) p ON p.order_id = o.id;</pre>
+<p><code>sum(DISTINCT x)</code> is not a fix. It removes equal <i>values</i>, not duplicate <i>rows</i>. Two items that each cost 25 are two real rows with the same value, and DISTINCT counts only one of them. <code>count(DISTINCT oi.product_id)</code> is correct only if the column is unique per child row. Before you aggregate over a join, name the grain. If more than one table is on the "many" side of the same parent, aggregate them first.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c13" data-title="ON, USING, NATURAL, range joins, LATERAL">
+<h2>13. More ways to join: USING, NATURAL, range joins, LATERAL</h2>
+<div class="topics">Covers: ON vs USING vs NATURAL, output columns of USING, how NATURAL breaks after a schema change, non-equality (range) joins, overlapping and missing ranges, half-open intervals, LATERAL subqueries for top-N per row, CROSS JOIN LATERAL vs LEFT JOIN LATERAL ... ON true. Sources: PostgreSQL 18 docs "Table Expressions" (§7.2.1.1 Joined Tables, §7.2.1.5 LATERAL Subqueries), "Range Types" (§8.17). Checked 2026-10-01.</div>
+<p class="lead">ON is the general form: any boolean test. <b>USING</b> and <b>NATURAL</b> are short forms for equality on columns with the same name. A <b>range join</b> uses a test other than equality. A <b>LATERAL</b> subquery can read columns of the tables before it, so it runs once per left row.</p>
+
+<h3>USING and NATURAL</h3>
+<p><code>JOIN orders USING (customer_id)</code> means <code>ON customers.customer_id = orders.customer_id</code>, and the result has one <code>customer_id</code> column instead of two. The docs: USING "produces one output column for each of the listed column pairs". <code>NATURAL JOIN</code> is USING on <i>every</i> column name the two tables share. The docs call it "considerably more risky since any schema changes to either relation that cause a new matching column name to be present will cause the join to combine that new column as well."</p>
+<div class="lab" id="c13-lab">
+ <div class="t">Lab: NATURAL JOIN after a migration</div>
+ <p class="hint">These tables use <code>customer_id</code> as the column name on both sides, so NATURAL works today. Now run the migration that adds an <code>updated_at</code> column to both tables. No query changed.</p>
+ <div class="bar"><label><input type="checkbox" id="c13-mig"> ALTER TABLE ... ADD COLUMN updated_at timestamptz on both tables</label></div>
+ <div class="cards" id="c13-cards"></div>
+</div>
+<p>Use ON in application code. Use USING only when the names were designed to match and you want the merged column.</p>
+
+<h3>Range joins</h3>
+<p>A join condition does not have to be equality. Shipping fees come from weight bands. Each parcel matches the band its weight falls into:</p>
+<pre>SELECT p.id, p.kg, r.fee
+FROM parcels p
+JOIN shipping_rates r ON p.kg &gt;= r.min_kg AND p.kg &lt; r.max_kg;</pre>
+<p>Two things go wrong with ranges. If bands <b>overlap</b>, a parcel matches two bands and appears twice. If bands have a <b>gap</b>, a parcel matches none and an INNER JOIN drops it. <code>BETWEEN min AND max</code> includes both ends, so a parcel of exactly 5 kg matches the band that ends at 5 and the band that starts at 5. Use half-open bands: <code>&gt;= min AND &lt; max</code>. PostgreSQL range types, such as <code>numrange</code> with <code>'[1,5)'</code>, make half-open bands the default, and an exclusion constraint can forbid overlaps in the table itself (docs §8.17).</p>
+<p>A range join cannot run as a hash join or a merge join, because those need equality. It runs as a nested loop (chapter 14). On big tables that needs an index that can answer the range test, such as a B-tree on <code>min_kg</code> or a GiST index on a range column.</p>
+<div class="lab" id="c13b-lab">
+ <div class="t">Lab: overlapping and missing bands</div>
+ <p class="hint">Lines link each parcel to every band it matches. Switch to BETWEEN and watch the 5 kg parcel. Open a gap and watch a parcel lose its line.</p>
+ <div class="bar"><label>Condition <select id="c13b-cond"><option value="half">p.kg &gt;= r.min_kg AND p.kg &lt; r.max_kg</option><option value="btw">p.kg BETWEEN r.min_kg AND r.max_kg</option></select></label>
+ <label><input type="checkbox" id="c13b-gap"> third band starts at 6 instead of 5 (a gap)</label>
+ <label>Join <select id="c13b-type"><option value="inner">INNER</option><option value="left">LEFT</option></select></label></div>
+ <div id="c13b-view"></div>
+ <div id="c13b-res"></div>
+ <p id="c13b-note" class="note"></p>
+</div>
+
+<h3>LATERAL: a subquery per row</h3>
+<p>A normal subquery in FROM runs once and cannot see the other tables. The docs: with LATERAL a subquery can "reference columns provided by preceding FROM items", so it is evaluated for each row of the tables before it. This answers "top N per group" directly:</p>
+<pre>SELECT c.name, t.id, t.total
+FROM customers c
+LEFT JOIN LATERAL (
+  SELECT o.id, o.total FROM orders o
+  WHERE o.customer_id = c.id          -- uses c, which a plain subquery cannot
+  ORDER BY o.total DESC
+  LIMIT 2
+) t ON true;</pre>
+<p><code>CROSS JOIN LATERAL</code> drops customers for whom the subquery returns no rows, like an inner join. <code>LEFT JOIN LATERAL ... ON true</code> keeps them with NULLs. With an index on <code>orders (customer_id, total DESC)</code>, each run of the subquery reads only its N rows.</p>
+<div class="lab" id="c13c-lab">
+ <div class="t">Lab: top N orders per customer</div>
+ <p class="hint">Change N and the join form. Each customer gets its own run of the subquery.</p>
+ <div class="bar"><label>N <input type="range" id="c13c-n" min="1" max="3" value="1"> <b id="c13c-nv"></b></label><label>Form <select id="c13c-form"><option value="left">LEFT JOIN LATERAL ... ON true</option><option value="cross">CROSS JOIN LATERAL</option></select></label></div>
+ <div id="c13c-runs"></div>
+ <div id="c13c-res"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c14" data-title="How the database runs a join">
+<h2>14. How the database runs a join: Nested Loop, Hash Join, Merge Join</h2>
+<div class="topics">Covers: logical join vs physical algorithm, Nested Loop (plain and with an inner index), Hash Join (build and probe), Merge Join (sorted inputs, mark and restore), which algorithm supports which join type and condition, how the planner chooses, the underestimate failure. Sources: PostgreSQL 18 docs "Planner/Optimizer" (§51.5), "Using EXPLAIN" (§14.1), "Resource Consumption" (§19.4.1, <code>work_mem</code>, <code>hash_mem_multiplier</code>), "Planner Method Configuration" (§19.7.1); source comments in <code>nodeHashjoin.c</code>, <code>nodeMergejoin.c</code>, <code>joinpath.c</code> (REL_18_STABLE). Checked 2026-10-01 (algorithm lab adapted from the SQL and PostgreSQL explainer, checked 2026-09-30).</div>
+<p class="lead">The join type (INNER, LEFT, ...) says <i>which</i> rows you get. The <b>join algorithm</b> says <i>how</i> the database finds them. PostgreSQL has three: <b>Nested Loop</b>, <b>Hash Join</b> and <b>Merge Join</b>. None of them builds the full cross product from chapter 4. Each avoids it in a different way, and each needs something different: an index, memory, or sorted input.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n msg" data-s="1">logical join<small>pairs where ON is TRUE</small></div>
+  <div class="row" data-s="2"><div class="n svc">Nested Loop<small>for each outer row, search the inner side</small></div></div>
+  <div class="row" data-s="3"><div class="n svc">Hash Join<small>hash the smaller side, probe with the other</small></div></div>
+  <div class="row" data-s="4"><div class="n svc">Merge Join<small>walk two sorted inputs in step</small></div></div>
+  <div class="n edge" data-s="5">planner<small>estimates rows, costs each option, picks the cheapest</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The meaning is fixed. Any algorithm the planner picks must return exactly these rows.</p>
+  <p class="cap" data-s="2"><b>Nested Loop.</b> For each row of the outer input, run the inner input and keep the matches. With an index on the inner join column, each outer row costs one index lookup. It is the only algorithm that handles any condition, including ranges and <code>&lt;&gt;</code>.</p>
+  <p class="cap" data-s="3"><b>Hash Join.</b> Read the inner input once and put it in a hash table in memory. Then read the outer input once, and look up each row in the table. It needs an equality condition. The memory limit is <code>work_mem × hash_mem_multiplier</code> (defaults 4MB × 2.0). A bigger build side spills to disk in batches.</p>
+  <p class="cap" data-s="4"><b>Merge Join.</b> Sort both inputs on the join key (or read them from an index in key order). Then move forward through both at the same time, like merging two sorted lists. It needs an equality whose operator has a B-tree sort order.</p>
+  <p class="cap" data-s="5">The planner builds each possible plan, estimates its cost from table statistics, and keeps the cheapest. EXPLAIN shows its choice.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="c14-lab">
+ <div class="t">Lab: step through the three algorithms</div>
+ <p class="hint">Sample data: customers Ana (1), Ben (2), Chen (3), Dara (4, no orders) and six orders. The query is <code>customers JOIN orders ON orders.customer_id = customers.id</code>. Pick an algorithm and press Next. Watch the pointers, the hash buckets and the counters. Try the LEFT JOIN to see how each one keeps Dara.</p>
+ <div class="bar"><label>Algorithm <select id="c14-alg"><option value="nl">Nested Loop, plain inner scan</option><option value="nlidx">Nested Loop, index on orders.customer_id</option><option value="hash">Hash Join</option><option value="merge">Merge Join</option></select></label>
+ <label>Join <select id="c14-jt"><option value="inner">INNER JOIN</option><option value="left">customers LEFT JOIN orders</option></select></label></div>
+ <div class="bar"><button id="c14-first">⏮ Restart</button><button id="c14-prev">◀ Back</button><button class="pri" id="c14-next">Next ▶</button><button id="c14-end">Run to end</button><span class="hint" id="c14-pos"></span></div>
+ <div id="c14-node" style="font-weight:600"></div>
+ <div id="c14-lanes"></div>
+ <div id="c14-buckets"></div>
+ <p id="c14-msg" class="jl-msg"></p>
+ <div id="c14-stats"></div>
+ <div class="c14-out" id="c14-out"></div>
+</div>
+<p>Count the work at the end of each run. The plain Nested Loop does 24 comparisons for 4 × 6 rows, and that number grows as the product of the sizes. The index version does 4 lookups. Hash Join does 4 inserts and 6 probes. Merge Join does about one comparison per pointer move, after its sort.</p>
+
+<h3>Which algorithm can run which join</h3>
+<table>
+<tr><th>Needs / supports</th><th>Nested Loop</th><th>Hash Join</th><th>Merge Join</th></tr>
+<tr><td>Condition</td><td>any</td><td>equality that can hash</td><td>equality with a B-tree order</td></tr>
+<tr><td>INNER, LEFT, semi, anti</td><td>yes</td><td>yes</td><td>yes</td></tr>
+<tr><td>RIGHT</td><td>no, the planner swaps the inputs and runs a LEFT</td><td>yes</td><td>yes</td></tr>
+<tr><td>FULL</td><td>no</td><td>yes</td><td>yes</td></tr>
+<tr><td>First row out</td><td>at once</td><td>after the whole hash table is built</td><td>at once if inputs are already sorted</td></tr>
+<tr><td>Wins when</td><td>the outer side is small and the inner side has an index</td><td>both sides are big and the smaller one fits in memory</td><td>both sides are big and already sorted, or the output must be sorted</td></tr>
+</table>
+<p>That table explains the FULL JOIN rule from chapter 7. A Nested Loop never sees the whole inner side at once, so it cannot know which inner rows were never matched. Hash Join keeps a "matched" flag on each hash entry, and Merge Join sees each inner row in order.</p>
+
+<div class="lab" id="c14b-lab">
+ <div class="t">Lab: where each algorithm wins</div>
+ <p class="hint">A simplified model, not the planner's real formulas. One unit is one row read, comparison or hash operation. An index lookup costs log<sub>2</sub>(inner rows) comparisons plus 4 units for random page reads (4 is the ratio of the default <code>random_page_cost</code> 4.0 to <code>seq_page_cost</code> 1.0). A sort costs n × log<sub>2</sub>(n). Short memory means 4 batches for the hash join (an example) and one extra pass for sorts. Move the outer slider down until Nested Loop wins.</p>
+ <div class="bar"><label>Outer rows <input type="range" id="c14b-o" min="0" max="7" step="0.25" value="2"> <b id="c14b-ov"></b></label><label>Inner rows <input type="range" id="c14b-i" min="1" max="7" step="0.25" value="5"> <b id="c14b-iv"></b></label></div>
+ <div class="bar"><label><input type="checkbox" id="c14b-idx" checked> index on the inner join column</label><label><input type="checkbox" id="c14b-sorted"> both inputs already sorted</label><label><input type="checkbox" id="c14b-mem" checked> enough memory</label></div>
+ <div id="c14b-bars" class="c14-bars"></div>
+ <p id="c14b-verdict"></p>
+</div>
+<div class="note bad">A wrong row estimate is the classic failure. If the planner thinks the outer side has 1 row, a Nested Loop with an inner index looks cheapest. If the outer side really has 100,000 rows, the inner side runs 100,000 times. EXPLAIN ANALYZE shows it as a large gap between estimated <code>rows</code> and actual rows, and a high <code>loops</code> count on the inner node. The cause is almost always a bad estimate lower in the plan, such as stale statistics after a bulk load. <code>ANALYZE</code> on the table is the first thing to try.</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c15" data-title="Using joins efficiently">
+<h2>15. Using joins efficiently</h2>
+<div class="topics">Covers: index the foreign key column, when an index helps a join and when it does not, keep the join column bare (no function or cast), matching data types, filter early, select only needed columns, EXISTS instead of JOIN + DISTINCT, aggregate before joining, join order and the planner, LIMIT with nested loops, reading EXPLAIN for joins. Sources: PostgreSQL 18 docs "Constraints" (§5.5.5), "Indexes on Expressions" (§11.7), "Multicolumn Indexes" (§11.3), "Using EXPLAIN" (§14.1), "Controlling the Planner with Explicit JOIN Clauses" (§14.3), "Statistics Used by the Planner" (§14.2). Checked 2026-10-01.</div>
+<p class="lead">A join is fast when the database can find the matching rows without reading everything. That depends on three things: an index the join can use, a condition the planner can use it with, and good estimates of how many rows each step returns. Most slow joins break one of these.</p>
+
+<h3>A checklist, in the order problems usually appear</h3>
+<ol>
+<li><b>Index the foreign key column.</b> PostgreSQL indexes the referenced key, not the referencing column (chapter 2). "Orders of customer 42" needs <code>orders(customer_id)</code>. A composite primary key already covers its <i>leading</i> column: <code>order_items(order_id, product_id)</code> serves joins on <code>order_id</code>, not on <code>product_id</code> (§11.3).</li>
+<li><b>Keep the join column bare.</b> <code>ON o.customer_id::text = c.code</code> or <code>ON lower(a.email) = lower(b.email)</code> cannot use a plain index on the column. Fix the data type, or create an index on the same expression (§11.7).</li>
+<li><b>Use the same data type on both sides.</b> A <code>bigint</code> key joined to a <code>text</code> column forces a cast on every row. Declare the foreign key column with the exact type of the key.</li>
+<li><b>Filter early, and on the table that has the filter.</b> A selective filter, such as one customer's email, lets the planner start from a few rows and use a Nested Loop. The planner pushes WHERE tests down to the scan of their table for you. You help it by writing tests it can use, such as <code>created_at &gt;= '2026-09-01'</code> instead of <code>date_trunc('month', created_at) = ...</code>.</li>
+<li><b>Ask the right question.</b> Use EXISTS for "has a match" (chapter 10). Aggregate children before joining them (chapter 12). Every join that is not needed is work: a LEFT JOIN to a table whose columns you do not select can be removed by the planner only if it can prove the join returns at most one row, through a unique key.</li>
+<li><b>Select only the columns you need.</b> A hash join stores the build side in memory. Fewer and narrower columns mean a smaller table and fewer batches on disk.</li>
+<li><b>Keep statistics fresh.</b> The planner picks the algorithm and the order from row estimates (§14.2). After a bulk load, run <code>ANALYZE</code>.</li>
+</ol>
+
+<h3>When an index helps a join, and when it does not</h3>
+<p>An index helps when the join touches a small part of the table. "Orders of one customer" reads about 10 of 1,000,000 orders (example numbers). A report over all customers reads every order anyway. Then a Hash Join over two sequential scans is cheaper than 100,000 index lookups, and the planner ignores the index. That is correct, not a bug.</p>
+<div class="lab" id="c15-lab">
+ <div class="t">Lab: what the planner can do</div>
+ <p class="hint">A model at example scale: 100,000 customers, 1,000,000 orders, 10 orders per customer. It shows the plan shape the planner usually picks for each case and the rows it has to read. Real plans depend on real statistics and settings.</p>
+ <div class="bar"><label>Query <select id="c15-q"><option value="one">orders of one customer (WHERE c.email = ...)</option><option value="all">total per customer for every customer (report)</option></select></label>
+ <label><input type="checkbox" id="c15-ix" checked> index on orders(customer_id)</label>
+ <label>Join written as <select id="c15-cast"><option value="bare">ON o.customer_id = c.id</option><option value="cast">ON o.customer_id::text = c.id::text</option></select></label></div>
+ <pre id="c15-plan" class="sqlbox"></pre>
+ <div class="bar" id="c15-stats"></div>
+ <p id="c15-note" class="note"></p>
+</div>
+
+<h3>Join order</h3>
+<p>For inner joins, the order you write the tables does not decide the order they run. The docs: explicit inner JOIN syntax "is semantically the same as listing the input relations in FROM, so it does not constrain the join order" (§14.3). The planner searches the orders itself, exhaustively up to <code>join_collapse_limit</code> items (default 8). Outer joins limit the reordering, because moving them changes the result. So you do not need to "put the small table first". You do need to give the planner correct estimates and usable indexes.</p>
+
+<h3>Reading a join in EXPLAIN</h3>
+<pre>EXPLAIN ANALYZE
+SELECT o.id, o.total FROM customers c JOIN orders o ON o.customer_id = c.id
+WHERE c.email = 'ana@acmeshop.com';
+
+ Nested Loop  (actual rows=2 loops=1)
+   -&gt;  Index Scan using customers_email_key on customers c  (actual rows=1 loops=1)
+         Index Cond: (email = 'ana@acmeshop.com'::text)
+   -&gt;  Index Scan using orders_customer_id_idx on orders o  (actual rows=2 loops=1)
+         Index Cond: (customer_id = c.id)</pre>
+<p>(Output shortened; costs and times removed.) Each join node has two children: the outer input first, the inner input second. <code>loops</code> on the inner child is how many times it ran. <code>Index Cond: (customer_id = c.id)</code> shows the join value passed into the inner index scan. That is the pattern of a fast selective join.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c16" data-title="Choosing the right join">
+<h2>16. Choosing the right join</h2>
+<div class="topics">Covers: mapping a question to a join form, all join types side by side on the same data, row count bounds, common mistakes with their symptom and fix. Sources: chapters 4 to 15; PostgreSQL 18 docs "Table Expressions" (§7.2.1), "Subquery Expressions" (§9.24). Checked 2026-10-01.</div>
+<p class="lead">Start from the question, not from the syntax. Ask which table must keep all its rows, whether you need columns from the other side or only a yes/no, and how many matches one row can have. The answers pick the join.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">Do you need columns from the other table?</div>
+  <div class="row" data-s="2"><div class="n msg">no, only "has a match?"<small>EXISTS / NOT EXISTS</small></div></div>
+  <div class="row" data-s="3"><div class="n svc">yes, only matched rows<small>INNER JOIN</small></div><div class="n edge">yes, keep all of one side<small>LEFT JOIN</small></div><div class="n edge">keep all of both<small>FULL JOIN</small></div></div>
+  <div class="row" data-s="4"><div class="n data">every combination<small>CROSS JOIN</small></div><div class="n data">rows of the same table<small>self join</small></div><div class="n data">top N per row<small>LATERAL</small></div></div>
+  <div class="n bad" data-s="5">then check the grain<small>can any row multiply?</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The first split is between a filter and a combination.</p>
+  <p class="cap" data-s="2">If you only filter, use a semi-join or an anti-join. It cannot multiply rows and it stops at the first match.</p>
+  <p class="cap" data-s="3">If you combine, decide which side must keep its unmatched rows: none, the left, or both.</p>
+  <p class="cap" data-s="4">Three special shapes: all pairs, pairs inside one table, and a subquery run per row.</p>
+  <p class="cap" data-s="5">Last, ask how many right rows can match one left row. If more than one, and you aggregate, check for row multiplication (chapter 12).</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="c16-lab">
+ <div class="t">Lab: from question to query</div>
+ <p class="hint">Pick a question. You get the query, the join it uses, and its result on the sample data.</p>
+ <div class="bar"><label>Question <select id="c16-q"></select></label></div>
+ <pre id="c16-sql" class="sqlbox"></pre>
+ <div id="c16-why" class="note"></div>
+ <div id="c16-res"></div>
+</div>
+
+<div class="lab" id="c16b-lab">
+ <div class="t">Lab: all joins on the same data</div>
+ <p class="hint">The same two tables, every join type at once. Compare the row counts and which rows are padded.</p>
+ <div class="cards" id="c16b-cards"></div>
+</div>
+
+<h3>Mistakes, symptoms, fixes</h3>
+<table>
+<tr><th>Mistake</th><th>Symptom</th><th>Fix</th></tr>
+<tr><td>INNER JOIN where a side can be empty</td><td>parents with no children, or children with a NULL key, are missing from the report</td><td>LEFT JOIN from the table that must stay whole</td></tr>
+<tr><td>WHERE test on the optional side of a LEFT JOIN</td><td>the LEFT JOIN acts like an inner join</td><td>move the test into ON</td></tr>
+<tr><td>INNER JOIN after a LEFT JOIN on its nullable side</td><td>the padded rows vanish again</td><td>make it LEFT, or put the inner join in parentheses</td></tr>
+<tr><td>two child tables in one aggregate</td><td>sums and counts too big</td><td>aggregate each child first</td></tr>
+<tr><td>JOIN + DISTINCT for "has a match"</td><td>slow, and can merge different rows</td><td>EXISTS</td></tr>
+<tr><td>NOT IN over a nullable column</td><td>zero rows, no error</td><td>NOT EXISTS</td></tr>
+<tr><td>comma join with a missing WHERE line</td><td>row count is the product of the sizes</td><td>JOIN ... ON</td></tr>
+<tr><td>NATURAL JOIN</td><td>breaks after a column is added</td><td>ON, or USING with named columns</td></tr>
+<tr><td>no index on the foreign key column</td><td>slow selective joins and slow parent deletes</td><td>index the referencing column</td></tr>
+<tr><td>function or cast on the join column</td><td>index not used</td><td>matching types, or an expression index</td></tr>
+</table>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+</main>
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const rnd=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function log(el,msg,cls=''){if(typeof el==='string')el=$(el);const d=document.createElement('div');d.className=cls;d.textContent=msg;el.appendChild(d);el.scrollTop=el.scrollHeight;}
+const stat=(v,label,color)=>`<span class="stat"><b${color?` style="color:var(--${color})"`:''}>${v}</b>${label}</span>`;
+
+/* ---------- nav + progress ---------- */
+const secs=$$('section.ch'),done=new Set(JSON.parse(localStorage.getItem('sql-joins-done')||'[]'));
+secs.forEach((s,i)=>{const a=document.createElement('a');a.href='#'+s.id;a.dataset.id=s.id;a.innerHTML=`<span class="num">${i+1}</span><span>${s.dataset.title}</span>`;a.onclick=()=>$('#side').classList.remove('open');$('#nav').appendChild(a);
+ $('.done-btn',s).onclick=()=>{done.has(s.id)?done.delete(s.id):done.add(s.id);localStorage.setItem('sql-joins-done',JSON.stringify([...done]));paintNav();};});
+function paintNav(){$$('#nav a').forEach(a=>a.classList.toggle('done',done.has(a.dataset.id)));secs.forEach(s=>$('.done-btn',s).textContent=done.has(s.id)?'✓ Read (click to undo)':'Mark chapter as read');$('#prog i').style.width=(done.size/secs.length*100)+'%';}
+paintNav();
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)$$('#nav a').forEach(a=>a.classList.toggle('cur',a.dataset.id===e.target.id));}),{rootMargin:'-35% 0px -60% 0px'});
+secs.forEach(s=>io.observe(s));
+
+/* ---------- build-up diagrams ---------- */
+$$('.build').forEach(b=>{
+ const items=$$('.stage [data-s]',b),caps=$$('.cap',b),ctl=$('.ctl',b);
+ const max=Math.max(...items.map(e=>+e.dataset.s),...caps.map(c=>+c.dataset.s));let cur=1;
+ ctl.innerHTML='<button data-a="first">⏮</button><button data-a="prev">◀ Back</button><button class="pri" data-a="next">Next ▶</button><button data-a="all">Show all</button><span></span>';
+ function show(fresh){items.forEach(e=>{const s=+e.dataset.s;e.classList.toggle('off',s>cur);e.classList.remove('fresh');if(fresh&&s===cur){void e.offsetWidth;e.classList.add('fresh');}});
+  caps.forEach(c=>c.classList.toggle('on',+c.dataset.s===cur));$('span',ctl).textContent=`Step ${cur} of ${max}`;$('[data-a=prev]',ctl).disabled=cur<=1;$('[data-a=next]',ctl).disabled=cur>=max;}
+ ctl.onclick=e=>{const a=e.target.dataset.a;if(!a)return;cur=a==='next'?cur+1:a==='prev'?cur-1:a==='first'?1:max;cur=Math.max(1,Math.min(max,cur));show(a==='next');};
+ show(false);
+});
+
+
+/* ---------- join toolkit shared by the labs ---------- */
+const NUL='<span class="nul">NULL</span>';
+const show=v=>v===null||v===undefined?NUL:String(v);
+const eq3=(a,b)=>a==null||b==null?null:a===b;
+const and3=(a,b)=>a===false||b===false?false:(a===null||b===null)?null:true;
+const tv=v=>v===true?'TRUE':v===false?'FALSE':'UNKNOWN';
+const CUST=[{id:1,name:'Ana',city:'Lyon'},{id:2,name:'Ben',city:'Oslo'},{id:3,name:'Chen',city:'Lyon'},{id:4,name:'Dara',city:'Porto'}];
+const ORD=[{id:101,customer_id:1,total:250},{id:102,customer_id:1,total:40},{id:103,customer_id:2,total:120},{id:104,customer_id:3,total:80},{id:105,customer_id:null,total:60}];
+const CC=[['id','id'],['name','name']],OC=[['id','id'],['customer_id','customer_id'],['total','total']];
+const onCust=(c,o)=>eq3(o.customer_id,c.id);
+const cell=(c,r)=>r==null?null:typeof c[1]==='function'?c[1](r):r[c[1]];
+
+// cols: [[header, field or fn]]; o.cls(row,i) -> row class; o.edit={col, click(i)}
+function tbl(cols,rows,o={}){
+ const body=rows.length?rows.map((r,i)=>`<tr class="${o.cls?o.cls(r,i):''}">${cols.map((c,ci)=>`<td${o.edit&&o.edit.col===ci?` class="ed" data-r="${i}" title="click to change"`:''}>${show(cell(c,r))}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" class="nul">(no rows)</td></tr>`;
+ return `<table class="dt"><tr>${cols.map(c=>`<th>${c[0]}</th>`).join('')}</tr>${body}</table>`;
+}
+// tabs: [{name, cols, rows, cls, edit}], links: [{t, i, j, cls}] from row i of tabs[t] to row j of tabs[t+1]
+function linkView(host,tabs,links){
+ host.classList.add('lvhost');
+ host.innerHTML=`<div class="lvwrap"><div class="lv">${tabs.map(t=>`<div class="lv-side"><div class="lv-n">${t.name}</div>${tbl(t.cols,t.rows,t)}</div>`).join('')}<svg class="lv-svg"></svg></div></div>`;
+ tabs.forEach((t,ti)=>{if(t.edit)$$('td.ed',$$('.lv-side',host)[ti]).forEach(td=>td.onclick=()=>t.edit.click(+td.dataset.r));});
+ host._links=links;drawLinks(host);
+}
+function drawLinks(host){
+ const lv=$('.lv',host);if(!lv)return;
+ const svg=$('.lv-svg',lv),b=lv.getBoundingClientRect(),tb=$$('.lv-side table',lv);
+ svg.setAttribute('width',b.width);svg.setAttribute('height',b.height);
+ svg.innerHTML=host._links.map(k=>{
+  const A=tb[k.t],B=tb[k.t+1];if(!A||!B)return '';
+  const ra=$$('tr',A)[k.i+1],rb=$$('tr',B)[k.j+1];if(!ra||!rb)return '';
+  const x1=A.getBoundingClientRect().right-b.left,x2=B.getBoundingClientRect().left-b.left,p=ra.getBoundingClientRect(),q=rb.getBoundingClientRect();
+  const y1=p.top+p.height/2-b.top,y2=q.top+q.height/2-b.top,m=(x2-x1)/2;
+  return `<path class="lk ${k.cls||''}" d="M${x1} ${y1} C${x1+m} ${y1} ${x2-m} ${y2} ${x2} ${y2}"/>`;}).join('');
+}
+const redrawLinks=()=>$$('.lvhost').forEach(h=>h._links&&drawLinks(h));
+addEventListener('resize',redrawLinks);addEventListener('load',redrawLinks);
+document.fonts&&document.fonts.ready.then(redrawLinks);
+
+// logical join. on(l,r) -> true|false|null. kinds: m matched, l left padded, r right padded
+function doJoin(L,R,on,type){
+ const rows=[],hitR=new Set();
+ L.forEach((l,i)=>{let hit=0;
+  R.forEach((r,j)=>{const v=type==='cross'?true:on(l,r);if(v===true){hit++;hitR.add(j);if(type!=='semi'&&type!=='anti')rows.push({l,r,i,j,k:'m'});}});
+  if(type==='semi'&&hit)rows.push({l,r:null,i,j:-1,k:'m'});
+  if(!hit&&(type==='anti'||type==='left'||type==='full'))rows.push({l,r:null,i,j:-1,k:'l'});
+ });
+ if(type==='right'||type==='full')R.forEach((r,j)=>{if(!hitR.has(j))rows.push({l:null,r,i:-1,j,k:'r'});});
+ return rows;
+}
+// result columns for a join: left cols then right cols, prefixed with the aliases
+const resCols=(la,lc,ra,rc,type)=>[...lc.map(c=>[`${la}.${c[0]}`,x=>cell(c,x.l)]),...(type==='semi'||type==='anti'?[]:rc.map(c=>[`${ra}.${c[0]}`,x=>cell(c,x.r)]))];
+const kindCls=x=>'k-'+x.k+(x.gone?' gone':'')+(x.fresh?' fresh':'');
+const LEGEND=`<div class="legend"><span><i style="background:rgba(62,207,142,.4)"></i>matched pair</span><span><i style="background:rgba(245,185,66,.5)"></i>left row, right side NULL</span><span><i style="background:rgba(181,140,255,.55)"></i>right row, left side NULL</span></div>`;
+let vennId=0;
+function venn(type,nl,np,nr,ln,rn){
+ const sh={inner:[0,1,0],left:[1,1,0],right:[0,1,1],full:[1,1,1],semi:[0,1,0],anti:[1,0,0],cross:[0,0,0]}[type];
+ const f=x=>x?'rgba(78,161,255,.38)':'transparent',id='vc'+(++vennId);
+ const mid=type==='semi'?`${np}`:type==='cross'?'':`${np}`;
+ return `<svg class="venn" viewBox="0 0 280 150" width="280" height="150"><defs><clipPath id="${id}"><circle cx="110" cy="80" r="58"/></clipPath></defs>
+ <circle cx="110" cy="80" r="58" fill="${f(sh[0])}" stroke="var(--line)" stroke-width="2"/>
+ <circle cx="170" cy="80" r="58" fill="${f(sh[2])}" stroke="var(--line)" stroke-width="2"/>
+ <circle cx="170" cy="80" r="58" fill="var(--bg)" clip-path="url(#${id})"/>
+ <circle cx="170" cy="80" r="58" fill="${f(sh[1])}" clip-path="url(#${id})" stroke="var(--line)" stroke-width="2"/>
+ <circle cx="110" cy="80" r="58" fill="none" stroke="var(--line)" stroke-width="2"/>
+ <text x="70" y="14" class="vt" text-anchor="middle">${ln}</text><text x="210" y="14" class="vt" text-anchor="middle">${rn}</text>
+ ${type==='cross'?`<text x="140" y="84" text-anchor="middle">no Venn picture</text>`:`<text x="82" y="78" text-anchor="middle">${nl}</text><text x="82" y="93" text-anchor="middle" class="vt">no match</text>
+ <text x="140" y="78" text-anchor="middle">${mid}</text><text x="140" y="93" text-anchor="middle" class="vt">${type==='semi'?'rows':'pairs'}</text>
+ <text x="198" y="78" text-anchor="middle">${nr}</text><text x="198" y="93" text-anchor="middle" class="vt">no match</text>`}</svg>`;
+}
+
+/* joinLab: a stepper over the logical join.
+ cfg: L,R, ln,rn (table labels), la,ra (aliases), lc,rc (cols), lab:[fnL,fnR] row labels,
+ types:[{v,t}], type, ons:[{v,sql,f,x}], wheres:[{v,sql,f}], sql(st), extra:[[h,fn]], edit:{col,field,vals}, add:fn, venn, start:'end'|'begin', note(st,rows) */
+function joinLab(id,cfg){
+ const box=$('#'+id);let L=cfg.L.map(r=>({...r})),R=cfg.R.map(r=>({...r}));
+ const st={type:cfg.type,on:cfg.ons[0].v,where:cfg.wheres?cfg.wheres[0].v:null};
+ const sel=(k,opts,cur)=>`<label>${k} <select data-k="${k}">${opts.map(o=>`<option value="${o.v}"${o.v===cur?' selected':''}>${o.t}</option>`).join('')}</select></label>`;
+ box.insertAdjacentHTML('beforeend',`<div class="bar">${cfg.types.length>1?sel('Join',cfg.types,st.type):''}${cfg.ons.length>1?sel('ON',cfg.ons.map(o=>({v:o.v,t:o.sql})),st.on):''}${cfg.wheres?sel('WHERE',cfg.wheres.map(o=>({v:o.v,t:o.sql})),st.where):''}${cfg.add?'<button data-a="add">+ add row</button><button data-a="del">− remove last</button>':''}</div>
+ <pre class="sqlbox jl-sql"></pre>
+ <div class="bar"><button data-a="first">⏮ Restart</button><button data-a="prev">◀ Back</button><button class="pri" data-a="next">Next pair ▶</button><button data-a="play">▶▶ Play</button><button data-a="end">Show result</button><span class="hint jl-pos"></span></div>
+ <div class="jl-msg"></div><div class="jl-lv"></div>
+ <div class="grid2"><div><div class="hint">Every pair. ✓ ON is TRUE, ✗ FALSE, ? UNKNOWN, blank = not tested</div><div class="jl-grid"></div></div><div><div class="hint">Result</div><div class="jl-res"></div></div></div>
+ <div class="bar jl-stats"></div>${cfg.venn?'<div class="jl-venn"></div>':''}${LEGEND}<p class="note jl-note"></p>`);
+ const q=s=>$(s,box);let ev=[],k=-1,tok=0;
+ const on=()=>cfg.ons.find(o=>o.v===st.on),wh=()=>cfg.wheres&&cfg.wheres.find(o=>o.v===st.where);
+ function build(){
+  const t=st.type,o=on(),w=wh();ev=[];const hitR=new Set();
+  L.forEach((l,i)=>{let hit=0;
+   for(let j=0;j<R.length;j++){const v=t==='cross'?true:o.f(l,R[j]);ev.push({t:'cmp',i,j,v});
+    if(v===true){hit++;hitR.add(j);if(t==='semi'){ev.push({t:'semi',i});break;}if(t==='anti')break;}}
+   if(!hit&&(t==='left'||t==='full'))ev.push({t:'padL',i});
+   if(!hit&&t==='anti')ev.push({t:'anti',i});
+  });
+  if(t==='right'||t==='full')R.forEach((r,j)=>{if(!hitR.has(j))ev.push({t:'padR',j});});
+  if(w&&w.f)ev.push({t:'where'});
+  ev.push({t:'done'});
+ }
+ function at(n){
+  const S={cells:{},rows:[],cur:null};const t=st.type,w=wh();
+  for(let x=0;x<=n;x++){const e=ev[x],fresh=x===n;
+   if(e.t==='cmp'){S.cells[e.i+','+e.j]=e.v;if(e.v===true&&t!=='semi'&&t!=='anti')S.rows.push({l:L[e.i],r:R[e.j],i:e.i,j:e.j,k:'m',fresh});}
+   else if(e.t==='semi')S.rows.push({l:L[e.i],r:null,i:e.i,j:-1,k:'m',fresh});
+   else if(e.t==='padL'||e.t==='anti')S.rows.push({l:L[e.i],r:null,i:e.i,j:-1,k:'l',fresh});
+   else if(e.t==='padR')S.rows.push({l:null,r:R[e.j],i:-1,j:e.j,k:'r',fresh});
+   else if(e.t==='where')S.rows.forEach(r=>{r.gone=w.f(r.l,r.r)!==true;});
+  }
+  S.cur=n>=0?ev[n]:null;return S;
+ }
+ function msg(e){
+  const [fl,fr]=cfg.lab,o=on(),t=st.type;
+  if(!e)return 'Press <b>Next pair</b> to test the first pair, or <b>Play</b>.';
+  if(e.t==='cmp'){const l=L[e.i],r=R[e.j];
+   if(t==='cross')return `(${fl(l)}, ${fr(r)}): CROSS JOIN has no condition. Every pair is kept.`;
+   const x=`(${fl(l)}, ${fr(r)}): <code>${o.x(l,r)}</code> → <span class="tv ${tv(e.v)[0]}">${tv(e.v)}</span>`;
+   if(e.v===true)return x+(t==='semi'?' A match exists.':t==='anti'?` A match exists, so ${fl(l)} is out. Stop looking.`:' Keep the pair.');
+   return x+(e.v===null?' UNKNOWN is not TRUE. Drop the pair.':' Drop the pair.');}
+  if(e.t==='semi')return `EXISTS is TRUE for ${fl(L[e.i])}. Emit the row once and skip the rest of the right side.`;
+  if(e.t==='padL')return `${fl(L[e.i])} matched nothing. ${t.toUpperCase()} JOIN adds it once, with NULL in every ${cfg.rn} column.`;
+  if(e.t==='anti')return `No pair for ${fl(L[e.i])} was TRUE. NOT EXISTS is TRUE, so emit it.`;
+  if(e.t==='padR')return `${fr(R[e.j])} matched nothing. ${t.toUpperCase()} JOIN adds it once, with NULL in every ${cfg.ln} column.`;
+  if(e.t==='where')return `WHERE <code>${wh().sql}</code> runs after the join. Rows where it is not TRUE are removed (struck out).`;
+  const S=at(ev.length-1),n=S.rows.filter(r=>!r.gone).length,p=Object.keys(S.cells).length;
+  return `Done. ${n} result row${n===1?'':'s'} from ${p} tested pair${p===1?'':'s'}.`;
+ }
+ function paint(){
+  const S=at(k),t=st.type,e=S.cur,cmp=e&&e.t==='cmp'?e:null;
+  const hitL=new Set(S.rows.filter(r=>r.k==='m').map(r=>r.i)),padL=new Set(S.rows.filter(r=>r.k==='l').map(r=>r.i)),padR=new Set(S.rows.filter(r=>r.k==='r').map(r=>r.j)),hitR=new Set(S.rows.filter(r=>r.k==='m').map(r=>r.j));
+  const cur=(side,i)=>(side==='l'?(cmp&&cmp.i===i)||(e&&e.i===i&&e.t!=='padR'&&e.t!=='cmp'):(cmp&&cmp.j===i)||(e&&e.t==='padR'&&e.j===i))?' cur':'';
+  const goneAt=(i,j)=>S.rows.some(r=>r.gone&&r.i===i&&(r.j===j||r.j<0));
+  const links=Object.keys(S.cells).filter(c=>S.cells[c]===true).map(c=>{const [i,j]=c.split(',').map(Number);return {t:0,i,j,cls:goneAt(i,j)?'dim':''};});
+  if(cmp&&t!=='cross')links.push({t:0,i:cmp.i,j:cmp.j,cls:'try '+(cmp.v===true?'':cmp.v===null?'unk':'no')});
+  const ed=cfg.edit?{col:cfg.edit.col,click:j=>{const v=cfg.edit.vals,c=R[j][cfg.edit.field];R[j][cfg.edit.field]=v[(v.indexOf(c)+1)%v.length];reset('end');}}:null;
+  linkView(q('.jl-lv'),[{name:on().ln||cfg.ln,cols:cfg.lc,rows:L,cls:(r,i)=>(padL.has(i)?'k-l':hitL.has(i)?'k-m':'')+cur('l',i)},{name:on().rn||cfg.rn,cols:cfg.rc,rows:R,cls:(r,j)=>(padR.has(j)?'k-r':hitR.has(j)?'k-m':'')+cur('r',j),edit:ed}],links);
+  q('.jl-grid').innerHTML=`<table class="dt xg"><tr><th></th>${R.map(r=>`<th>${cfg.lab[1](r)}</th>`).join('')}</tr>${L.map((l,i)=>`<tr><th>${cfg.lab[0](l)}</th>${R.map((r,j)=>{const v=S.cells[i+','+j];return `<td class="${v===true?'t':v===false?'f':v===null?'u':''}${cmp&&cmp.i===i&&cmp.j===j?' now':''}">${v===true?'✓':v===false?'✗':v===null?'?':''}</td>`;}).join('')}</tr>`).join('')}</table>`;
+  const cols=[...resCols(on().la||cfg.la,cfg.lc,on().ra||cfg.ra,cfg.rc,t),...(cfg.extra||[])];
+  q('.jl-res').innerHTML=tbl(cols,S.rows,{cls:kindCls});
+  const live=S.rows.filter(r=>!r.gone).length;
+  q('.jl-stats').innerHTML=stat(L.length,cfg.ln+' rows')+stat(R.length,cfg.rn+' rows')+stat(Object.keys(S.cells).length+' / '+L.length*R.length,'pairs tested')+stat(live,'result rows','ok');
+  if(cfg.venn){const F=doJoin(L,R,on().f,'inner'),mL=new Set(F.map(r=>r.i)),mR=new Set(F.map(r=>r.j));
+   q('.jl-venn').innerHTML=`<div class="row mid">${venn(t,L.length-mL.size,t==='semi'?mL.size:F.length,R.length-mR.size,cfg.ln,cfg.rn)}<p class="hint" style="max-width:360px">Shaded = what ${t.toUpperCase()} keeps. The middle counts <b>pairs</b>, not rows. ${F.length} pairs come from only ${mL.size} ${cfg.ln} rows.</p></div>`;}
+  q('.jl-msg').innerHTML=msg(e);
+  q('.jl-pos').textContent=`Step ${k+1} of ${ev.length}`;
+  q('.jl-sql').textContent=cfg.sql(st);
+  q('[data-a=prev]').disabled=k<0;q('[data-a=next]').disabled=q('[data-a=end]').disabled=k>=ev.length-1;
+  if(cfg.note)q('.jl-note').innerHTML=cfg.note(st,doJoin(L,R,on().f,t));
+  q('.jl-note').style.display=cfg.note?'':'none';
+ }
+ function reset(pos){tok++;build();k=pos==='end'?ev.length-1:-1;paint();}
+ box.addEventListener('change',e=>{const s=e.target.dataset.k;if(!s)return;
+  if(s==='Join')st.type=e.target.value;if(s==='ON')st.on=e.target.value;if(s==='WHERE')st.where=e.target.value;reset(cfg.start==='begin'?'begin':'end');});
+ box.addEventListener('click',async e=>{const a=e.target.dataset.a;if(!a)return;
+  if(a==='add'){R.push(cfg.add(R));reset('end');return;}
+  if(a==='del'){if(R.length)R.pop();reset('end');return;}
+  if(a==='play'){const my=++tok;if(k>=ev.length-1)k=-1;while(my===tok&&k<ev.length-1){k++;paint();await sleep(650);}return;}
+  tok++;k=a==='first'?-1:a==='prev'?Math.max(-1,k-1):a==='next'?Math.min(ev.length-1,k+1):ev.length-1;paint();});
+ reset(cfg.start==='begin'?'begin':'end');
+}
+const T=(...v)=>v.map(x=>({v:x,t:{inner:'INNER JOIN',left:'LEFT JOIN',right:'RIGHT JOIN',full:'FULL JOIN',cross:'CROSS JOIN',semi:'WHERE EXISTS (semi-join)',anti:'WHERE NOT EXISTS (anti-join)'}[x]}));
+const KW={inner:'JOIN',left:'LEFT JOIN',right:'RIGHT JOIN',full:'FULL JOIN',cross:'CROSS JOIN'};
+const custOrdSql=(st,on,where)=>st.type==='cross'?'SELECT c.*, o.*\nFROM customers c\nCROSS JOIN orders o;':st.type==='semi'||st.type==='anti'?`SELECT c.*\nFROM customers c\nWHERE ${st.type==='anti'?'NOT ':''}EXISTS (SELECT 1 FROM orders o WHERE ${on});`:`SELECT c.*, o.*\nFROM customers c\n${KW[st.type]} orders o ON ${on}${where&&where!=='(none)'?'\nWHERE '+where:''};`;
+const lab2=[c=>c.name,o=>'o'+o.id];
+const ON_EQ={v:'eq',sql:'o.customer_id = c.id',f:onCust,x:(c,o)=>`o.customer_id (${show(o.customer_id).replace(NUL,'NULL')}) = c.id (${c.id})`};
+
+/* ---------- labs: one IIFE per lab ---------- */
+/* chapter 1: is it a key? */
+(()=>{
+ const base=[{id:1,email:'ana@acmeshop.com',name:'Ana',city:'Lyon'},{id:2,email:'ben@acmeshop.com',name:'Ben',city:'Oslo'},{id:3,email:'chen@acmeshop.com',name:'Chen',city:'Lyon'},{id:4,email:'dara@acmeshop.com',name:'Dara',city:'Porto'},{id:5,email:'ana.r@acmeshop.com',name:'Ana',city:'Oslo'}];
+ const extra=[{id:6,email:null,name:'Eli',city:'Lyon'},{id:7,email:null,name:'Finn',city:'Oslo'}];
+ const COLS=['id','email','name','city'],BYDESIGN=['id','email'];
+ $('#c1-cols').innerHTML='Key columns: '+COLS.map(c=>`<label><input type="checkbox" value="${c}"${c==='name'?' checked':''}> ${c}</label>`).join('');
+ function paint(){
+  const sel=$$('#c1-cols input:checked').map(x=>x.value),rows=$('#c1-nulls').checked?[...base,...extra]:base,nnd=$('#c1-nnd').checked;
+  const hasNull=r=>sel.some(c=>r[c]===null),key=r=>sel.map(c=>String(r[c])).join('|');
+  const groups={};rows.forEach(r=>{if(!nnd&&hasNull(r))return;(groups[key(r)]=groups[key(r)]||[]).push(r.id);});
+  const dup=new Set(Object.values(groups).filter(g=>g.length>1).flat()),nulls=rows.filter(hasNull).map(r=>r.id);
+  const uniq=cols=>{const s=new Set();for(const r of rows){if(cols.some(c=>r[c]===null))return false;const k=cols.map(c=>r[c]).join('|');if(s.has(k))return false;s.add(k);}return true;};
+  $('#c1-table').innerHTML=tbl(COLS.map(c=>[sel.includes(c)?`<u>${c}</u>`:c,c]),rows,{cls:r=>dup.has(r.id)?'dup':sel.length&&hasNull(r)?'k-l':''});
+  const v=$('#c1-verdict'),list=sel.join(', ');let h,c='';
+  if(!sel.length){h='Tick at least one column.';}
+  else if(dup.size){const nullDup=nnd&&[...dup].some(id=>hasNull(rows.find(r=>r.id===id)));
+   h=`<b>Not unique.</b> Rows ${[...dup].join(', ')} share the same value${sel.length>1?'s':''} in (${list}). It cannot be a key, and <code>UNIQUE (${list})</code> would reject this data.`+(nullDup?' With <code>NULLS NOT DISTINCT</code>, the two NULL emails count as equal, so the second sign-up fails.':'');c='bad';}
+  else if(nulls.length){h=`<b>Cannot be the primary key.</b> Rows ${nulls.join(', ')} have NULL in (${list}), and a primary key column is NOT NULL. <code>UNIQUE (${list})</code> still accepts the data, because by default two NULLs are not equal (§5.5.3). Tick <i>NULLS NOT DISTINCT</i> to change that.`;c='warn';}
+  else{const sub=sel.length>1&&sel.find(x=>uniq(sel.filter(y=>y!==x)));
+   if(sub){const rest=sel.filter(y=>y!==sub);h=`<b>Unique, but not minimal.</b> (${rest.join(', ')}) is already unique without <code>${sub}</code>. (${list}) is a superkey, not a candidate key.`;c='warn';}
+   else if(sel.length===1&&BYDESIGN.includes(sel[0])){h=`<b>Candidate key.</b> Unique, never NULL, and minimal. It is also unique by design: ${sel[0]==='id'?'the database makes up each value':'the business rule is one account per email'}. ${sel[0]==='id'?'Make it the PRIMARY KEY.':'Keep it as UNIQUE next to the id primary key.'}`;c='good';}
+   else{h=`<b>Unique today, by chance.</b> (${list}) has no duplicate in these rows and is minimal. But nothing in the real world stops a second customer with the same ${list}. A key is a rule for future rows too. Do not make this a key.`;c='warn';}}
+  v.className='note '+c;v.innerHTML=h;
+ }
+ $('#c1-lab').addEventListener('change',paint);paint();
+})();
+
+/* chapter 2: the foreign key at work */
+(()=>{
+ let C,O,fresh={};const lg=$('#c2-log');
+ function reset(){C=CUST.map(c=>({...c}));O=ORD.map(o=>({...o}));fresh={};lg.innerHTML='';log(lg,'Data reset. orders.customer_id REFERENCES customers (id).','mute');paint();}
+ function paint(){
+  linkView($('#c2-view'),[{name:'orders (referencing)',cols:OC,rows:O,cls:o=>fresh.o===o.id?'k-m fresh':fresh.nul&&fresh.nul.includes(o.id)?'k-l fresh':''},{name:'customers (referenced)',cols:CC,rows:C,cls:c=>fresh.c===c.id?'k-m fresh':''}],
+   O.map((o,i)=>({t:0,i,j:C.findIndex(c=>c.id===o.customer_id),cls:'fk'})).filter(k=>k.j>=0));
+ }
+ function refCheck(id){
+  const ix=$('#c2-ix').checked,hit=O.filter(o=>o.customer_id===id);
+  log(lg,`  check: SELECT 1 FROM ONLY orders x WHERE $1 = customer_id FOR KEY SHARE OF x   ($1 = ${id})`,'mute');
+  log(lg,ix?`  plan: Index Scan using orders_customer_id_idx. Reads only the ${hit.length} matching entr${hit.length===1?'y':'ies'}.`:`  plan: Seq Scan on orders. Reads all ${O.length} orders (all 1,000,000 at an example scale), once per deleted customer.`,ix?'mute':'warn');
+  return hit;
+ }
+ const fkErr=(id,verb)=>{log(lg,`  ERROR: update or delete on table "customers" violates foreign key constraint "orders_customer_id_fkey" on table "orders"`,'bad');log(lg,`  DETAIL: Key (id)=(${id}) is still referenced from table "orders". Nothing was ${verb}.`,'bad');};
+ $('#c2-run').onclick=()=>{
+  const s=$('#c2-stmt').value,act=$('#c2-act').value;fresh={};
+  log(lg,'> '+$('#c2-stmt').selectedOptions[0].text.split('--')[0].trim(),'info');
+  if(s[0]==='i'){
+   const v=s==='i3'?3:s==='i9'?9:null;
+   if(O.some(o=>o.id===106)){log(lg,'  ERROR: duplicate key value violates unique constraint "orders_pkey". Order 106 exists. Press Reset data.','bad');}
+   else if(v===null){O.push({id:106,customer_id:null,total:30});fresh.o=106;log(lg,'  customer_id is NULL, so the foreign key check is skipped. INSERT 0 1','ok');}
+   else{log(lg,`  check: SELECT 1 FROM ONLY customers x WHERE id = ${v} FOR KEY SHARE OF x   (uses customers_pkey)`,'mute');
+    if(C.some(c=>c.id===v)){O.push({id:106,customer_id:v,total:30});fresh.o=106;log(lg,`  Customer ${v} found and locked FOR KEY SHARE until commit. INSERT 0 1`,'ok');}
+    else{log(lg,'  ERROR: insert or update on table "orders" violates foreign key constraint "orders_customer_id_fkey"','bad');log(lg,`  DETAIL: Key (customer_id)=(${v}) is not present in table "customers".`,'bad');}}
+  }else if(s[0]==='d'){
+   const id=+s.slice(1);
+   if(!C.some(c=>c.id===id)){log(lg,'  No such row. DELETE 0','mute');}
+   else{const hit=refCheck(id);
+    if(!hit.length){C=C.filter(c=>c.id!==id);log(lg,'  No order points to this customer. DELETE 1','ok');}
+    else if(act==='NO ACTION'||act==='RESTRICT'){fkErr(id,'deleted');if(act==='NO ACTION')log(lg,'  (NO ACTION checks at the end of the statement. With DEFERRABLE INITIALLY DEFERRED it would wait until COMMIT.)','mute');}
+    else if(act==='CASCADE'){O=O.filter(o=>o.customer_id!==id);C=C.filter(c=>c.id!==id);log(lg,`  CASCADE: also deleted order${hit.length>1?'s':''} ${hit.map(o=>o.id).join(', ')}. Their own foreign keys (order_items ...) would fire next. DELETE 1`,'warn');}
+    else{hit.forEach(o=>o.customer_id=null);C=C.filter(c=>c.id!==id);fresh.nul=hit.map(o=>o.id);log(lg,`  SET NULL: order${hit.length>1?'s':''} ${hit.map(o=>o.id).join(', ')} now ha${hit.length>1?'ve':'s'} customer_id NULL, like a guest order. DELETE 1`,'warn');}}
+  }else{
+   if(!C.some(c=>c.id===2)){log(lg,'  No such row. UPDATE 0','mute');}
+   else{log(lg,'  ON UPDATE is a separate setting. Here it is the default, NO ACTION.','mute');const hit=refCheck(2);
+    if(hit.length)fkErr(2,'updated');else{C.find(c=>c.id===2).id=20;fresh.c=20;log(lg,'  UPDATE 1','ok');}}
+  }
+  paint();
+ };
+ $('#c2-reset').onclick=reset;reset();
+})();
+
+/* chapter 3: relationship builder */
+(()=>{
+ const W=200,H=56,GAP=110;
+ const L=(x1,y1,x2,y2)=>`<line class="ln" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+ function end(x,y,d,kind){
+  const bar=o=>L(x+d*o,y-9,x+d*o,y+9),circ=o=>`<circle cx="${x+d*o}" cy="${y}" r="5" fill="var(--bg)" stroke="var(--text)" stroke-width="1.6"/>`;
+  const foot=L(x+d*14,y,x,y-10)+L(x+d*14,y,x,y+10);
+  return {one:bar(8)+bar(14),zeroOne:bar(8)+circ(22),many:foot+bar(20),zeroMany:foot+circ(24)}[kind];
+ }
+ function erd(boxes,rels){
+  const w=20+boxes.length*W+(boxes.length-1)*GAP,y=24;
+  const bx=i=>10+i*(W+GAP);
+  return `<svg class="erd" viewBox="0 0 ${Math.max(w,300)} ${y+H+40}" width="${Math.max(w,300)}" style="max-width:100%">${boxes.map((b,i)=>`<rect x="${bx(i)}" y="${y}" width="${W}" height="${H}" rx="8"/><text x="${bx(i)+W/2}" y="${y+24}" text-anchor="middle">${b[0]}</text><text x="${bx(i)+W/2}" y="${y+42}" text-anchor="middle" class="sm">${b[1]}</text>`).join('')}
+  ${rels.map(r=>{const x1=bx(r[0])+W,x2=bx(r[1]),m=y+H/2;return L(x1,m,x2,m)+end(x1,m,1,r[2])+end(x2,m,-1,r[3])+`<text x="${(x1+x2)/2}" y="${m-14}" text-anchor="middle" class="sm">${r[4]}</text><text x="${(x1+x2)/2}" y="${m+26}" text-anchor="middle" class="sm">${r[5]}</text>`;}).join('')}</svg>`;
+ }
+ function selfErd(){return `<svg class="erd" viewBox="0 0 480 130" width="480" style="max-width:100%"><rect x="10" y="30" width="${W}" height="${H}" rx="8"/><text x="110" y="54" text-anchor="middle">employees</text><text x="110" y="72" text-anchor="middle" class="sm">PK id · FK manager_id</text>
+  <path class="ln" d="M210 46 C 330 0, 330 120, 210 70"/>
+  <text x="330" y="30" class="sm">manager_id → id</text><text x="330" y="104" class="sm">0..1 manager, 0..N reports</text></svg>`;}
+ const PROD=[{id:1,name:'Keyboard'},{id:2,name:'Mouse'}];
+ const EMP=[{id:1,name:'Maya',manager_id:null},{id:2,name:'Omar',manager_id:1},{id:3,name:'Lina',manager_id:1},{id:4,name:'Sam',manager_id:2}];
+ const EC=[['id','id'],['name','name'],['manager_id','manager_id']];
+ const S={
+  '11':{erd:()=>erd([['customers','PK id'],['customer_settings','PK/FK customer_id']],[[0,1,'one','zeroOne','1 customer','0 or 1 settings row']]),place:[
+   {v:'pk',t:'settings.customer_id is PRIMARY KEY and REFERENCES customers',ok:1,
+    ddl:'CREATE TABLE customer_settings (\n  customer_id bigint PRIMARY KEY REFERENCES customers (id),\n  theme text NOT NULL\n);',
+    say:'Correct. The foreign key links each settings row to one customer. The primary key on the same column allows at most one settings row per customer. A customer with no settings row (Ben, Dara) is fine, so the settings side is optional. Join it with LEFT JOIN when you read customers.'},
+   {v:'fk',t:'settings.customer_id REFERENCES customers, no UNIQUE',
+    ddl:'CREATE TABLE customer_settings (\n  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n  customer_id bigint REFERENCES customers (id),\n  theme text NOT NULL\n);',
+    rows:[{customer_id:1,theme:'dark'},{customer_id:1,theme:'light'},{customer_id:3,theme:'light'}],dup:[0,1],
+    say:'Without UNIQUE this is one-to-many. Nothing stops a second settings row for Ana. Now "Ana\'s theme" has two answers, and every join from customers to settings returns Ana twice.'}]},
+  '1n':{erd:nn=>erd([['customers','PK id'],['orders','PK id · FK customer_id']],[[0,1,nn?'one':'zeroOne','zeroMany',nn?'exactly 1 customer':'0 or 1 customer','0..N orders']]),nn:1,place:[
+   {v:'child',t:'orders.customer_id REFERENCES customers (the many side)',ok:1,
+    ddl:nn=>`CREATE TABLE orders (\n  id bigint PRIMARY KEY,\n  customer_id bigint${nn?' NOT NULL':''} REFERENCES customers (id),\n  total numeric NOT NULL\n);\nCREATE INDEX ON orders (customer_id);   -- not created by the foreign key`,
+    say:nn=>`Correct. Each order stores one customer id, and any number of orders can store the same one. ${nn?'With NOT NULL, the guest order 105 cannot exist: every order must have a customer.':'The column allows NULL, so guest order 105 exists with no customer. The circle on the customers end shows that.'}`},
+   {v:'parent',t:'customers.order_id REFERENCES orders (the one side)',
+    ddl:'CREATE TABLE customers (\n  id bigint PRIMARY KEY,\n  name text,\n  order_id bigint REFERENCES orders (id)   -- one value per row\n);',
+    rows:[{id:1,name:'Ana',order_id:101},{id:1,name:'Ana',order_id:102},{id:2,name:'Ben',order_id:103}],dup:[0,1],
+    say:'Wrong side. A customer row holds one order_id, so Ana can have one order. To store her second order you must copy her row, and then her id is no longer a key. Every fact about Ana now lives in two places.'},
+   {v:'list',t:'customers.order_ids bigint[] (a list in one column)',
+    ddl:'CREATE TABLE customers (\n  id bigint PRIMARY KEY,\n  name text,\n  order_ids bigint[]   -- no foreign key on elements\n);',
+    rows:[{id:1,name:'Ana',order_ids:'{101,102}'},{id:2,name:'Ben',order_ids:'{103}'},{id:4,name:'Dara',order_ids:'{}'}],
+    say:'This breaks first normal form. PostgreSQL cannot put a foreign key on array elements, so {101, 999} is accepted. "Who owns order 102?" becomes a search inside every array. Two customers can list the same order, and nothing stops it.'}]},
+  'nm':{erd:()=>erd([['orders','PK id'],['order_items','PK (order_id, product_id)'],['products','PK id']],[[0,1,'one','zeroMany','1 order','0..N items'],[1,2,'zeroMany','one','0..N items','1 product']]),place:[
+   {v:'junction',t:'junction table order_items with two foreign keys and a composite PK',ok:1,
+    ddl:'CREATE TABLE order_items (\n  order_id   bigint REFERENCES orders (id) ON DELETE CASCADE,\n  product_id bigint REFERENCES products (id) ON DELETE RESTRICT,\n  qty int NOT NULL,\n  PRIMARY KEY (order_id, product_id)\n);   -- the PostgreSQL docs use this shape (§5.5.5)',
+    say:'Correct. Each row is one link. Order 101 has two links, and Mouse is in two orders. The composite primary key forbids the same pair twice, and its leading column already indexes order_id. Add an index on product_id for joins from products.'},
+   {v:'fkorders',t:'orders.product_id REFERENCES products',
+    ddl:'CREATE TABLE orders (\n  id bigint PRIMARY KEY,\n  product_id bigint REFERENCES products (id)   -- one product per order\n);',
+    rows:[{id:101,product_id:1},{id:101,product_id:2},{id:103,product_id:2}],dup:[0,1],
+    say:'Order 101 has two products, but the column holds one. You must either drop a product or copy the order row, and then order id 101 is no longer unique.'},
+   {v:'nopk',t:'junction table with no primary key',
+    ddl:'CREATE TABLE order_items (\n  order_id bigint REFERENCES orders (id),\n  product_id bigint REFERENCES products (id),\n  qty int\n);   -- no key',
+    rows:[{order_id:101,product_id:1,qty:1},{order_id:101,product_id:2,qty:1},{order_id:101,product_id:2,qty:1},{order_id:103,product_id:2,qty:3}],dup:[1,2],
+    say:'The same pair can be stored twice, for example by a double click. Every join through this table now counts Mouse twice for order 101. The composite primary key prevents this at write time.'}]},
+  'self':{erd:selfErd,place:[
+   {v:'self',t:'employees.manager_id REFERENCES employees (id)',ok:1,
+    ddl:'CREATE TABLE employees (\n  id bigint PRIMARY KEY,\n  name text NOT NULL,\n  manager_id bigint REFERENCES employees (id)   -- NULL at the top\n);',
+    say:'Correct. A one-to-many relation where both ends are the same table. Maya is the root, with NULL. You read it with a self join (chapter 9).'},
+   {v:'nofk',t:'manager_id with no foreign key',
+    ddl:'CREATE TABLE employees (\n  id bigint PRIMARY KEY,\n  name text NOT NULL,\n  manager_id bigint   -- no REFERENCES\n);',
+    rows:[...EMP.slice(0,3),{id:4,name:'Sam',manager_id:9}],bad:[3],
+    say:'Nothing checks the value. Sam points to manager 9, who does not exist, or who was deleted. An INNER self join then drops Sam with no error.'}]}
+ };
+ const cur=()=>S[$('#c3-shape').value];
+ function fillPlace(){$('#c3-place').innerHTML=cur().place.map(p=>`<option value="${p.v}">${p.t}</option>`).join('');$('#c3-nnw').style.display=cur().nn?'':'none';paint();}
+ function paint(){
+  const sh=$('#c3-shape').value,s=cur(),p=s.place.find(x=>x.v===$('#c3-place').value),nn=$('#c3-nn').checked;
+  $('#c3-erd').innerHTML=s.erd(nn);
+  $('#c3-ddl').textContent=typeof p.ddl==='function'?p.ddl(nn):p.ddl;
+  const host=$('#c3-rows'),dc=(r,i)=>(p.dup&&p.dup.includes(i))||(p.bad&&p.bad.includes(i))?'dup':'';
+  if(p.rows){const cols=Object.keys(p.rows[0]).map(k=>[k,k]);host._links=null;host.innerHTML=`<div class="lv-n">${sh==='11'?'customer_settings':sh==='1n'?'customers':sh==='nm'?(p.v==='nopk'?'order_items':'orders'):'employees'}</div>`+tbl(cols,p.rows,{cls:dc});}
+  else if(sh==='11')linkView(host,[{name:'customers',cols:CC,rows:CUST},{name:'customer_settings',cols:[['customer_id','customer_id'],['theme','theme']],rows:p.rows||[{customer_id:1,theme:'dark'},{customer_id:3,theme:'light'}]}],[{t:0,i:0,j:0,cls:'fk'},{t:0,i:2,j:1,cls:'fk'}]);
+  else if(sh==='1n'){const O=nn?ORD.filter(o=>o.customer_id!==null):ORD;linkView(host,[{name:'customers',cols:CC,rows:CUST},{name:'orders',cols:OC,rows:O,cls:o=>o.customer_id===null?'k-r':''}],O.map((o,j)=>({t:0,i:CUST.findIndex(c=>c.id===o.customer_id),j,cls:'fk'})).filter(k=>k.i>=0));}
+  else if(sh==='nm'){const OI=[{order_id:101,product_id:1,qty:1},{order_id:101,product_id:2,qty:1},{order_id:103,product_id:2,qty:3}],O=[{id:101},{id:103}];
+   linkView(host,[{name:'orders',cols:[['id','id']],rows:O},{name:'order_items',cols:[['order_id','order_id'],['product_id','product_id'],['qty','qty']],rows:OI},{name:'products',cols:[['id','id'],['name','name']],rows:PROD}],
+    [...OI.map((x,j)=>({t:0,i:O.findIndex(o=>o.id===x.order_id),j,cls:'fk'})),...OI.map((x,i)=>({t:1,i,j:PROD.findIndex(q=>q.id===x.product_id),cls:'fk'}))]);}
+  else linkView(host,[{name:'employees AS e',cols:EC,rows:EMP},{name:'employees AS m',cols:EC,rows:EMP}],EMP.map((e,i)=>({t:0,i,j:EMP.findIndex(m=>m.id===e.manager_id),cls:'fk'})).filter(k=>k.j>=0));
+  const v=$('#c3-verdict');v.className='note '+(p.ok?'good':'bad');v.innerHTML=typeof p.say==='function'?p.say(nn):p.say;
+ }
+ $('#c3-shape').onchange=fillPlace;$('#c3-place').onchange=paint;$('#c3-nn').onchange=paint;fillPlace();
+})();
+
+/* chapter 4: the join machine */
+(()=>{
+ const say={inner:'INNER keeps only the TRUE pairs. Dara (no orders) and order 105 (NULL customer) are gone.',left:'LEFT keeps every customer. Dara has no TRUE pair, so she is added once with NULL order columns.',right:'RIGHT keeps every order. Order 105 has no TRUE pair, so it is added once with NULL customer columns.',full:'FULL keeps every row of both tables: the pairs, Dara, and order 105.',cross:'CROSS keeps all 20 pairs. There is no ON to test.'};
+ joinLab('c4-lab',{L:CUST,R:ORD,ln:'customers',rn:'orders',la:'c',ra:'o',lc:CC,rc:OC,lab:lab2,types:T('inner','left','right','full','cross'),type:'inner',ons:[ON_EQ],
+  sql:st=>custOrdSql(st,'o.customer_id = c.id'),venn:true,start:'begin',note:st=>say[st.type]});
+})();
+
+/* chapter 5: edit the data */
+(()=>{
+ joinLab('c5-lab',{L:CUST,R:ORD,ln:'customers',rn:'orders',la:'c',ra:'o',lc:CC,rc:OC,lab:lab2,types:T('inner','left'),type:'inner',ons:[ON_EQ],
+  sql:st=>custOrdSql(st,'o.customer_id = c.id'),edit:{col:1,field:'customer_id',vals:[1,2,3,4,null]},
+  add:R=>({id:Math.max(100,...R.map(r=>r.id))+1,customer_id:4,total:50}),
+  note:(st,rows)=>{const per=CUST.map(c=>{const n=rows.filter(r=>r.l===c&&r.k==='m').length;return `${c.name} ${n}`;});
+   return `Matching orders per customer: ${per.join(' + ')} = <b>${rows.filter(r=>r.k==='m').length}</b> matched rows.`+(st.type==='left'?` LEFT adds ${rows.filter(r=>r.k==='l').length} padded row(s) for customers with 0.`:' INNER drops every customer with 0.');}});
+})();
+
+/* chapter 6: LEFT, RIGHT, ON and WHERE */
+(()=>{
+ const big={v:'big',sql:'o.customer_id = c.id AND o.total > 100',f:(c,o)=>and3(onCust(c,o),o.total>100),x:(c,o)=>`o.customer_id (${o.customer_id===null?'NULL':o.customer_id}) = c.id (${c.id}) AND o.total (${o.total}) > 100`};
+ const wheres=[{v:'none',sql:'(none)'},{v:'gt',sql:'o.total > 100',f:(c,o)=>o?o.total>100:null},{v:'onull',sql:'o.id IS NULL',f:(c,o)=>!o},{v:'cnull',sql:'c.id IS NULL',f:c=>!c}];
+ joinLab('c6-lab',{L:CUST,R:ORD,ln:'customers',rn:'orders',la:'c',ra:'o',lc:CC,rc:OC,lab:lab2,types:T('left','right'),type:'left',ons:[ON_EQ,big],wheres,
+  sql:st=>custOrdSql(st,(st.on==='big'?big:ON_EQ).sql,wheres.find(w=>w.v===st.where).sql),
+  note:st=>st.where==='gt'?'The WHERE test on the optional side removes every padded row, because <code>NULL &gt; 100</code> is UNKNOWN. This LEFT JOIN now returns what an INNER JOIN would.':st.where==='onull'?(st.type==='left'?'Only the padded rows survive: customers with no matching order. This is an anti-join.':'In a RIGHT JOIN the orders are kept whole, so <code>o.id</code> is never NULL. Try <code>c.id IS NULL</code>.'):st.where==='cnull'?(st.type==='right'?'Only orders with no matching customer survive: the guest order.':'In a LEFT JOIN the customers are kept whole, so <code>c.id</code> is never NULL.'):st.on==='big'?'The test is part of ON. It decides what counts as a match. Customers with only small orders are kept with NULLs.':'Plain '+st.type.toUpperCase()+' JOIN. '+(st.type==='left'?'Every customer is kept.':'Every order is kept. <code>customers RIGHT JOIN orders</code> gives the same rows as <code>orders LEFT JOIN customers</code>.')});
+})();
+
+/* chapter 6: a chain of three tables */
+(()=>{
+ const IT=[{order_id:101,product:'Keyboard'},{order_id:101,product:'Mouse'},{order_id:103,product:'Cable'},{order_id:104,product:'Mouse'}];
+ const SQL={inner:'FROM customers c\nLEFT JOIN orders o       ON o.customer_id = c.id\nJOIN order_items oi      ON oi.order_id = o.id',
+  left:'FROM customers c\nLEFT JOIN orders o       ON o.customer_id = c.id\nLEFT JOIN order_items oi ON oi.order_id = o.id',
+  nested:'FROM customers c\nLEFT JOIN (orders o JOIN order_items oi ON oi.order_id = o.id)\n       ON o.customer_id = c.id'};
+ const NOTE={inner:'Dara and order 102 are gone. Dara\'s padded row has <code>o.id</code> = NULL, and <code>oi.order_id = NULL</code> is UNKNOWN. Ana keeps only order 101. The first LEFT JOIN did nothing useful.',
+  left:'Everyone is kept. Dara is padded at the first join, order 102 is padded at the second. Use this for "all customers, with their orders and items if any".',
+  nested:'Dara is kept, but order 102 is not. The inner join of orders and items runs first, so an order with no items never becomes a match. Use this for "all customers, with their orders that have items".'};
+ function paint(){
+  const m=$('#c6b-mode').value;let rows=[];
+  if(m==='nested'){const inner=[];ORD.forEach(o=>IT.forEach(it=>{if(it.order_id===o.id)inner.push({o,it});}));
+   CUST.forEach(c=>{const hit=inner.filter(x=>x.o.customer_id===c.id);hit.length?hit.forEach(x=>rows.push({c,o:x.o,it:x.it})):rows.push({c,o:null,it:null});});}
+  else doJoin(CUST,ORD,onCust,'left').forEach(r=>{const hit=r.r?IT.filter(it=>it.order_id===r.r.id):[];
+   if(hit.length)hit.forEach(it=>rows.push({c:r.l,o:r.r,it}));else if(m==='left')rows.push({c:r.l,o:r.r,it:null});});
+  const OO=ORD.filter(o=>o.customer_id!==null),live=(c,o,it)=>rows.some(r=>r.c===c&&(o===undefined||r.o===o)&&(it===undefined||r.it===it));
+  linkView($('#c6b-view'),[{name:'customers c',cols:CC,rows:CUST,cls:c=>live(c)?'':'dup'},{name:'orders o',cols:OC,rows:OO,cls:o=>rows.some(r=>r.o===o)?'':'dup'},{name:'order_items oi',cols:[['order_id','order_id'],['product','product']],rows:IT,cls:it=>rows.some(r=>r.it===it)?'':'dup'}],
+   [...OO.map((o,j)=>({t:0,i:CUST.findIndex(c=>c.id===o.customer_id),j,cls:rows.some(r=>r.o===o)?'':'dim'})),...IT.map((it,j)=>({t:1,i:OO.findIndex(o=>o.id===it.order_id),j,cls:rows.some(r=>r.it===it)?'':'dim'}))]);
+  $('#c6b-sql').textContent='SELECT c.name, o.id, oi.product\n'+SQL[m]+';';
+  $('#c6b-res').innerHTML=tbl([['c.name',r=>r.c.name],['o.id',r=>r.o?r.o.id:null],['oi.product',r=>r.it?r.it.product:null]],rows,{cls:r=>r.it?'k-m':'k-l'});
+  $('#c6b-stats').innerHTML=stat(rows.length,'result rows')+stat(new Set(rows.map(r=>r.c)).size+' / 4','customers kept',new Set(rows.map(r=>r.c)).size<4?'bad':'ok');
+  $('#c6b-note').innerHTML=NOTE[m];
+ }
+ $('#c6b-mode').onchange=paint;paint();
+})();
+
+/* chapter 7: reconcile orders and payments */
+(()=>{
+ const O=ORD.map(o=>({id:o.id,total:o.total})),P=[{id:1,order_id:101,amount:250},{id:2,order_id:103,amount:100},{id:3,order_id:104,amount:80},{id:4,order_id:999,amount:30}];
+ const status=x=>!x.l?'payment for unknown order':!x.r?'not paid':x.r.amount!==x.l.total?'amount differs':'ok';
+ const HIDE={full:'nothing',left:'payments for unknown orders',right:'unpaid orders',inner:'unpaid orders and unknown payments'};
+ joinLab('c7-lab',{L:O,R:P,ln:'orders',rn:'payments',la:'o',ra:'p',lc:[['id','id'],['total','total']],rc:[['id','id'],['order_id','order_id'],['amount','amount']],lab:[o=>'o'+o.id,p=>'p'+p.id],
+  types:T('full','left','right','inner'),type:'full',ons:[{v:'eq',sql:'p.order_id = o.id',f:(o,p)=>eq3(p.order_id,o.id),x:(o,p)=>`p.order_id (${p.order_id}) = o.id (${o.id})`}],
+  extra:[['status',status]],edit:{col:1,field:'order_id',vals:[101,102,103,104,105,999]},
+  sql:st=>`SELECT COALESCE(o.id, p.order_id) AS order_ref, o.total, p.amount, ... AS status\nFROM orders o\n${KW[st.type]} payments p ON p.order_id = o.id;`,
+  note:(st,rows)=>{const c={};rows.forEach(r=>{const s=status(r);c[s]=(c[s]||0)+1;});return Object.entries(c).map(([k,v])=>`${v} × ${k}`).join(' · ')+`. ${st.type.toUpperCase()} hides: <b>${HIDE[st.type]}</b>.`;}});
+})();
+
+/* chapter 8: variants grid */
+(()=>{
+ const SZ=['S','M','L','XL'],CO=['Black','White','Red'];
+ $('#c8-pick').innerHTML='sizes: '+SZ.map((s,i)=>`<label><input type="checkbox" data-g="s" value="${s}"${i<3?' checked':''}> ${s}</label>`).join('')+' &nbsp; colours: '+CO.map((c,i)=>`<label><input type="checkbox" data-g="c" value="${c}"${i<2?' checked':''}> ${c}</label>`).join('');
+ function paint(){
+  const s=$$('#c8-pick [data-g=s]:checked').map(x=>x.value),c=$$('#c8-pick [data-g=c]:checked').map(x=>x.value);
+  $('#c8-grid').innerHTML=`<div class="hint">sizes × colours</div><table class="dt xg"><tr><th></th>${c.map(x=>`<th>${x}</th>`).join('')}</tr>${s.map(a=>`<tr><th>${a}</th>${c.map(b=>`<td class="t">${a}·${b}</td>`).join('')}</tr>`).join('')}</table>`;
+  const rows=[];s.forEach(a=>c.forEach(b=>rows.push({size:a,colour:b})));
+  $('#c8-res').innerHTML='<div class="hint">SELECT s.size, c.colour FROM sizes s CROSS JOIN colours c;</div>'+tbl([['size','size'],['colour','colour']],rows,{cls:()=>'k-m'});
+  $('#c8-stats').innerHTML=stat(s.length,'sizes')+stat(c.length,'colours')+stat(`${s.length} × ${c.length} = ${rows.length}`,'result rows','ok')+(s.length&&c.length?'':'<span class="pill warn">one side is empty, so the product is empty</span>');
+ }
+ $('#c8-pick').onchange=paint;paint();
+})();
+
+/* chapter 8: growth of a cross product */
+(()=>{
+ const fmt=n=>n>=1e12?(n/1e12).toFixed(1)+' trillion':n>=1e9?(n/1e9).toFixed(1)+' billion':n>=1e6?(n/1e6).toFixed(1)+' million':Math.round(n).toLocaleString('en-US');
+ const bytes=b=>b>=1e12?(b/1e12).toFixed(1)+' TB':b>=1e9?(b/1e9).toFixed(1)+' GB':b>=1e6?(b/1e6).toFixed(1)+' MB':b>=1e3?(b/1e3).toFixed(1)+' kB':b+' B';
+ function paint(){
+  const n=Math.round(10**+$('#c8b-n').value),m=Math.round(10**+$('#c8b-m').value),r=n*m;
+  $('#c8b-nv').textContent=n.toLocaleString('en-US');$('#c8b-mv').textContent=m.toLocaleString('en-US');
+  const pct=Math.min(100,Math.log10(r+1)/12*100);
+  $('#c8b-out').innerHTML=stat(fmt(n+m),'rows read')+stat(fmt(r),'rows returned',r>1e7?'bad':r>1e5?'warn':'ok')+stat(bytes(r*100),'at 100 bytes per row (example)')+`<div class="meter" style="margin-top:8px"><i style="width:${pct}%;background:var(--${r>1e7?'bad':r>1e5?'warn':'svc'})"></i></div><p class="hint">The input grows as N + M. The output grows as N × M. The meter is on a log scale up to 10¹².</p>`;
+ }
+ ['#c8b-n','#c8b-m'].forEach(s=>$(s).oninput=paint);paint();
+})();
+
+/* chapter 9: the self join */
+(()=>{
+ const E=[{id:1,name:'Maya',dept:'Exec',manager_id:null},{id:2,name:'Omar',dept:'Eng',manager_id:1},{id:3,name:'Lina',dept:'Sales',manager_id:1},{id:4,name:'Sam',dept:'Eng',manager_id:2},{id:5,name:'Ivy',dept:'Eng',manager_id:2},{id:6,name:'Noor',dept:'Sales',manager_id:3}];
+ const EC=[['id','id'],['name','name'],['dept','dept'],['manager_id','manager_id']];
+ const pr=(a,b)=>({ln:'employees AS a',rn:'employees AS b',la:'a',ra:'b'});
+ const ons=[
+  {v:'mgr',sql:'m.id = e.manager_id',ln:'employees AS e',rn:'employees AS m',la:'e',ra:'m',f:(e,m)=>eq3(m.id,e.manager_id),x:(e,m)=>`m.id (${m.id}) = e.manager_id (${e.manager_id===null?'NULL':e.manager_id})`},
+  {v:'d',sql:'b.dept = a.dept',...pr(),f:(a,b)=>eq3(a.dept,b.dept),x:(a,b)=>`b.dept (${b.dept}) = a.dept (${a.dept})`},
+  {v:'dne',sql:'b.dept = a.dept AND a.id <> b.id',...pr(),f:(a,b)=>a.dept===b.dept&&a.id!==b.id,x:(a,b)=>`${b.dept} = ${a.dept} AND ${a.id} <> ${b.id}`},
+  {v:'dlt',sql:'b.dept = a.dept AND a.id < b.id',...pr(),f:(a,b)=>a.dept===b.dept&&a.id<b.id,x:(a,b)=>`${b.dept} = ${a.dept} AND ${a.id} < ${b.id}`}];
+ joinLab('c9-lab',{L:E,R:E,ln:'employees AS e',rn:'employees AS m',la:'e',ra:'m',lc:EC,rc:EC,lab:[e=>e.name,e=>e.name],types:T('inner','left'),type:'left',ons,
+  sql:st=>{const o=ons.find(x=>x.v===st.on);return `SELECT ${o.la}.name, ${o.ra}.name\nFROM employees ${o.la}\n${KW[st.type]} employees ${o.ra} ON ${o.sql};`;},
+  note:(st,rows)=>{const m=rows.filter(r=>r.k==='m').length;
+   return st.on==='mgr'?(st.type==='left'?`${m} employee-manager pairs, plus Maya with NULL: she has no manager.`:`${m} pairs. Maya is gone: <code>m.id = NULL</code> is never TRUE.`)
+    :st.on==='d'?`${m} pairs. Every employee pairs with themself, and each real pair comes twice. Eng has 3 people, so 3 × 3 = 9 pairs.`
+    :st.on==='dne'?`${m} pairs. No self pairs, but (Omar, Sam) and (Sam, Omar) are both here. Eng: 3 × 2 = 6.`
+    :`${m} pairs. Each pair once. Eng: 3 × 2 / 2 = 3 pairs, Sales: 1.`;}});
+})();
+
+/* chapter 10: every way to write the question */
+(()=>{
+ function paint(){
+  const O=$('#c10-guest').checked?ORD:ORD.filter(o=>o.customer_id!==null),nn=$('#c10-nn').checked;
+  const list=O.map(o=>o.customer_id).filter(v=>!nn||v!==null),has=c=>O.some(o=>o.customer_id===c.id);
+  const sub=`SELECT customer_id FROM orders${nn?' WHERE customer_id IS NOT NULL':''}`;
+  const L=`(${list.map(v=>v===null?'NULL':v).join(', ')})`;
+  const card=(t,sql,names,ok,why)=>`<div class="card"><h5>${t} <span class="pill ${ok===1?'ok':ok===0?'bad':'warn'}">${ok===1?'correct':ok===0?'wrong':'works, with a cost'}</span></h5><pre>${sql}</pre><div>${names.length?names.map(n=>`<span class="pill">${n}</span>`).join(' '):'<span class="nul">(no rows)</span>'}</div><p class="hint" style="margin:6px 0 0">${why}</p></div>`;
+  let h;
+  if($('#c10-q').value==='semi'){
+   const j=doJoin(CUST,O,onCust,'inner').map(r=>r.l.name),d=[...new Set(j)];
+   h=card('JOIN','SELECT c.name FROM customers c\nJOIN orders o ON o.customer_id = c.id;',j,0,`Returns pairs, so Ana is here ${j.filter(n=>n==='Ana').length} times. Wrong for "who", right for "which orders".`)
+    +card('JOIN + DISTINCT','SELECT DISTINCT c.name FROM customers c\nJOIN orders o ON o.customer_id = c.id;',d,2,`Builds ${j.length} pairs, then removes ${j.length-d.length} copies. It would also merge two different customers who share a name.`)
+    +card('EXISTS',`SELECT c.name FROM customers c\nWHERE EXISTS (SELECT 1 FROM orders o\n              WHERE o.customer_id = c.id);`,CUST.filter(has).map(c=>c.name),1,'Each customer once. Stops at the first matching order. Plan: Semi Join.')
+    +card('IN',`SELECT c.name FROM customers c\nWHERE c.id IN (${sub});`,CUST.filter(c=>list.includes(c.id)).map(c=>c.name),1,`List: ${L}. A NULL in the list only fails to match, so IN is safe.`);
+  }else{
+   const ni=CUST.filter(c=>{const eq=list.map(v=>v===null?null:v===c.id);return eq.includes(true)?false:eq.includes(null)?null:true;});
+   const trace=CUST.map(c=>{const eq=list.map(v=>v===null?null:v===c.id),r=eq.includes(true)?'FALSE':eq.includes(null)?'UNKNOWN':'TRUE';return `${c.id} NOT IN ${L} → ${r}`;});
+   const noNull=list.every(v=>v!==null);
+   h=card('NOT EXISTS',`SELECT c.name FROM customers c\nWHERE NOT EXISTS (SELECT 1 FROM orders o\n                  WHERE o.customer_id = c.id);`,CUST.filter(c=>!has(c)).map(c=>c.name),1,'The guest order gives UNKNOWN for every customer, which is not a match. Plan: Anti Join.')
+    +card('LEFT JOIN ... IS NULL','SELECT c.name FROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id\nWHERE o.id IS NULL;',doJoin(CUST,O,onCust,'left').filter(r=>!r.r).map(r=>r.l.name),1,'Keeps only padded rows. Tests o.id, the primary key, which is never NULL in a real order.')
+    +card('NOT IN',`SELECT c.name FROM customers c\nWHERE c.id NOT IN (${sub});`,ni.map(c=>c.name),noNull?1:0,trace.join('<br>')+(noNull?'<br>No NULL in the list, so it works. Until someone adds a guest order.':'<br>One NULL in the list makes the test UNKNOWN for everyone who did not order.'))
+    +card('EXCEPT',`SELECT id FROM customers\nEXCEPT\n${sub};`,CUST.filter(c=>!list.includes(c.id)).map(c=>'id '+c.id),2,'Correct ids. EXCEPT compares whole rows and treats NULLs as equal. But it returns only the key columns, so you need one more join to get names.');
+  }
+  $('#c10-cards').innerHTML=h;
+ }
+ $('#c10-lab').addEventListener('change',paint);paint();
+})();
+
+/* chapter 11: compare with NULL */
+(()=>{
+ const V=[1,2,null],sv=v=>v===null?'NULL':v;
+ const OPS={eq:eq3,ne:(a,b)=>a==null||b==null?null:a!==b,nd:(a,b)=>a===b,d:(a,b)=>a!==b,neq:(a,b)=>{const r=eq3(a,b);return r===null?null:!r;}};
+ const NOTE={eq:'<code>NULL = NULL</code> is UNKNOWN. So two rows with NULL in the join column never match. That is how guest order 105 drops out of an inner join.',
+  ne:'<code>&lt;&gt;</code> is UNKNOWN with NULL too. So <code>a.id &lt;&gt; b.id</code> in a self join also drops rows with a NULL id.',
+  nd:'Never UNKNOWN. NULL matches NULL. Use it for nullable composite keys, and expect no plain index or hash join on it.',
+  d:'The opposite of IS NOT DISTINCT FROM. Never UNKNOWN.',
+  neq:'NOT of UNKNOWN is still UNKNOWN. This is why NOT IN and NOT (a = b) do not return the NULL rows you expect.'};
+ function paint(){
+  const op=$('#c11-op').value,f=OPS[op],sym=$('#c11-op').selectedOptions[0].text;
+  $('#c11-grid').innerHTML=`<table class="dt xg"><tr><th>a \\ b</th>${V.map(b=>`<th>${sv(b)}</th>`).join('')}</tr>${V.map(a=>`<tr><th>${sv(a)}</th>${V.map(b=>{const r=f(a,b),t=tv(r);return `<td><span class="tv ${t[0]}">${t}</span></td>`;}).join('')}</tr>`).join('')}</table>`;
+  $('#c11-note').innerHTML=`<b>${sym}</b>. ${NOTE[op]}`;
+ }
+ $('#c11-op').onchange=paint;paint();
+})();
+
+/* chapter 11: aggregates over padded rows */
+(()=>{
+ const rows=doJoin(CUST,ORD,onCust,'left');
+ $('#c11b-rows').innerHTML='<div class="hint">customers LEFT JOIN orders</div>'+tbl([['c.name',r=>r.l.name],['o.id',r=>r.r&&r.r.id],['o.total',r=>r.r&&r.r.total]],rows,{cls:kindCls});
+ const AGG={cs:g=>g.length,co:g=>g.filter(r=>r.r).length,s:g=>g.some(r=>r.r)?g.reduce((a,r)=>a+(r.r?r.r.total:0),0):null,cz:g=>g.reduce((a,r)=>a+(r.r?r.r.total:0),0),a:g=>{const v=g.filter(r=>r.r).map(r=>r.r.total);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;}};
+ const NOTE={cs:['bad','count(*) counts rows, and Dara has one padded row. It says 1 order for a customer with none.'],co:['good','count(o.id) skips NULLs, so the padded row counts as 0. Count a column that is never NULL in a real order.'],
+  s:['warn','sum over only NULLs is NULL, not 0. A report or an app that adds these up then breaks or shows a blank.'],cz:['good','COALESCE turns the NULL into 0 for display. Use it when 0 is the right answer.'],a:['good','avg skips NULLs. NULL is the honest answer for "average order of a customer with no orders". Do not COALESCE it to 0, which would pull averages down.']};
+ function paint(){
+  const k=$('#c11b-agg').value,name=$('#c11b-agg').selectedOptions[0].text;
+  const out=CUST.map(c=>({name:c.name,v:AGG[k](rows.filter(r=>r.l===c))}));
+  $('#c11b-out').innerHTML='<div class="hint">GROUP BY c.name</div>'+tbl([['c.name','name'],[name,'v']],out,{cls:r=>r.name==='Dara'?(NOTE[k][0]==='bad'?'dup':NOTE[k][0]==='warn'?'k-l':'k-m'):''});
+  const n=$('#c11b-note');n.className='note '+NOTE[k][0];n.innerHTML=NOTE[k][1];
+ }
+ $('#c11b-agg').onchange=paint;paint();
+})();
+
+/* chapter 12: fan-out */
+(()=>{
+ const IT=[{p:'Cable',price:25},{p:'Adapter',price:25},{p:'Mouse',price:40},{p:'Pad',price:10}],PY=[{id:'p1',amount:50},{id:'p2',amount:40},{id:'p3',amount:20},{id:'p4',amount:30}];
+ const sum=a=>a.reduce((x,y)=>x+y,0),SQL={
+  naive:'SELECT o.id, count(*), sum(oi.price) AS items_total, sum(p.amount) AS paid\nFROM orders o\nLEFT JOIN order_items oi ON oi.order_id = o.id\nLEFT JOIN payments p     ON p.order_id = o.id\nWHERE o.id = 101 GROUP BY o.id;',
+  dist:'SELECT o.id, count(*), sum(DISTINCT oi.price) AS items_total, sum(DISTINCT p.amount) AS paid\nFROM orders o\nLEFT JOIN order_items oi ON oi.order_id = o.id\nLEFT JOIN payments p     ON p.order_id = o.id\nWHERE o.id = 101 GROUP BY o.id;',
+  pre:'SELECT o.id, i.n, i.items_total, p.paid\nFROM orders o\nLEFT JOIN (SELECT order_id, count(*) AS n, sum(price) AS items_total\n           FROM order_items GROUP BY order_id) i ON i.order_id = o.id\nLEFT JOIN (SELECT order_id, sum(amount) AS paid\n           FROM payments GROUP BY order_id) p ON p.order_id = o.id\nWHERE o.id = 101;'};
+ function paint(){
+  const a=+$('#c12-i').value,b=+$('#c12-p').value,q=$('#c12-q').value,I=IT.slice(0,a),P=PY.slice(0,b);
+  $('#c12-iv').textContent=a;$('#c12-pv').textContent=b;$('#c12-sql').textContent=SQL[q];
+  const Ir=I.length?I:[null],Pr=P.length?P:[null];
+  $('#c12-grid').innerHTML=`<div class="hint">rows the two LEFT JOINs make for order 101</div><table class="dt xg"><tr><th>item \\ payment</th>${Pr.map(p=>`<th>${p?p.id+' ('+p.amount+')':'NULL'}</th>`).join('')}</tr>${Ir.map(i=>`<tr><th>${i?i.p+' ('+i.price+')':'NULL'}</th>${Pr.map(()=>`<td class="u">row</td>`).join('')}</tr>`).join('')}</table>`;
+  const tI=a?sum(I.map(i=>i.price)):null,tP=b?sum(P.map(p=>p.amount)):null,rows=Ir.length*Pr.length;
+  let r;
+  if(q==='naive')r={n:rows,it:a?tI*Pr.length:null,pd:b?tP*Ir.length:null};
+  else if(q==='dist')r={n:rows,it:a?sum([...new Set(I.map(i=>i.price))]):null,pd:b?sum([...new Set(P.map(p=>p.amount))]):null};
+  else r={n:a||null,it:tI,pd:tP};
+  const line=(m,got,want)=>({m,got,want,ok:got===want});
+  const L=[line(q==='pre'?'item count (i.n)':'count(*)',r.n,a||(q==='pre'?null:1)),line('items_total',r.it,tI),line('paid',r.pd,tP)];
+  if(q!=='pre')L[0].want=a;
+  L.forEach(x=>x.ok=x.got===x.want);
+  $('#c12-out').innerHTML='<div class="hint">reported vs true</div>'+tbl([['value','m'],['query says','got'],['true','want'],['',x=>x.ok?'✓':'✗ wrong']],L,{cls:x=>x.ok?'k-m':'dup'})+`<p class="hint">${q==='naive'?`${Ir.length} × ${Pr.length} = ${rows} rows. Each item is counted ${Pr.length} time(s), each payment ${Ir.length} time(s).`:q==='dist'?'DISTINCT removes equal values. Two items at 25 become one 25.':'Each subquery returns one row per order, so the joins cannot multiply.'}</p>`;
+ }
+ ['#c12-i','#c12-p'].forEach(s=>$(s).oninput=paint);$('#c12-q').onchange=paint;paint();
+})();
+
+/* chapter 13: NATURAL after a migration */
+(()=>{
+ function paint(){
+  const mig=$('#c13-mig').checked;
+  const C=CUST.map((c,i)=>({customer_id:c.id,name:c.name,updated_at:`2026-09-0${i+1}`})),O=ORD.filter(o=>o.customer_id).map((o,i)=>({order_id:o.id,customer_id:o.customer_id,total:o.total,updated_at:`2026-09-2${i}`}));
+  const cc=[['customer_id','customer_id'],['name','name'],...(mig?[['updated_at','updated_at']]:[])],oc=[['order_id','order_id'],['customer_id','customer_id'],['total','total'],...(mig?[['updated_at','updated_at']]:[])];
+  const pairs=[];C.forEach(c=>O.forEach(o=>{if(o.customer_id===c.customer_id)pairs.push({c,o});}));
+  const nat=pairs.filter(p=>!mig||p.c.updated_at===p.o.updated_at);
+  const card=(t,sql,cols,rows,ok,why)=>`<div class="card"><h5>${t} <span class="pill ${ok?'ok':'bad'}">${rows.length} rows</span></h5><pre>${sql}</pre>${tbl(cols,rows.slice(0,4))}${rows.length>4?'<div class="hint">…</div>':''}<p class="hint">${why}</p></div>`;
+  const shared=mig?'customer_id, updated_at':'customer_id';
+  $('#c13-cards').innerHTML=
+   card('ON','SELECT *\nFROM customers c JOIN orders o\n  ON o.customer_id = c.customer_id;',[['c.customer_id',p=>p.c.customer_id],['name',p=>p.c.name],['order_id',p=>p.o.order_id],['o.customer_id',p=>p.o.customer_id]],pairs,1,'Two customer_id columns, one from each table. Unaffected by the migration.')
+   +card('USING','SELECT *\nFROM customers c JOIN orders o\n  USING (customer_id);',[['customer_id',p=>p.c.customer_id],['name',p=>p.c.name],['order_id',p=>p.o.order_id],['total',p=>p.o.total]],pairs,1,'One merged customer_id column. Unaffected, because the column list is written out.')
+   +card('NATURAL','SELECT *\nFROM customers c NATURAL JOIN orders o;',[[shared.split(',')[0],p=>p.c.customer_id],['name',p=>p.c.name],['order_id',p=>p.o.order_id]],nat,!mig,mig?'Shared names are now customer_id <b>and updated_at</b>. The join silently requires equal timestamps. No row passes, and no error is raised.':'Joins on every shared column name: today only customer_id.');
+ }
+ $('#c13-mig').onchange=paint;paint();
+})();
+
+/* chapter 13: range join */
+(()=>{
+ const P=[{id:'P1',kg:1.5},{id:'P2',kg:5},{id:'P3',kg:5.5},{id:'P4',kg:8}];
+ function paint(){
+  const btw=$('#c13b-cond').value==='btw',gap=$('#c13b-gap').checked,left=$('#c13b-type').value==='left';
+  const R=[{band:'A',min_kg:0,max_kg:2,fee:5},{band:'B',min_kg:2,max_kg:5,fee:8},{band:'C',min_kg:gap?6:5,max_kg:10,fee:12}];
+  const on=(p,r)=>btw?p.kg>=r.min_kg&&p.kg<=r.max_kg:p.kg>=r.min_kg&&p.kg<r.max_kg;
+  const rows=doJoin(P,R,on,left?'left':'inner'),cnt=i=>rows.filter(r=>r.i===i&&r.k==='m').length;
+  linkView($('#c13b-view'),[{name:'parcels p',cols:[['id','id'],['kg','kg']],rows:P,cls:(p,i)=>cnt(i)>1?'dup':cnt(i)===0?'k-l':'k-m'},{name:'shipping_rates r',cols:[['band','band'],['min_kg','min_kg'],['max_kg','max_kg'],['fee','fee']],rows:R}],
+   rows.filter(r=>r.k==='m').map(r=>({t:0,i:r.i,j:r.j,cls:cnt(r.i)>1?'bad':''})));
+  $('#c13b-res').innerHTML=tbl([['p.id',r=>r.l.id],['p.kg',r=>r.l.kg],['r.band',r=>r.r&&r.r.band],['r.fee',r=>r.r&&r.r.fee]],rows,{cls:r=>cnt(r.i)>1?'dup':kindCls(r)});
+  const dups=P.filter((p,i)=>cnt(i)>1).map(p=>p.id),miss=P.filter((p,i)=>cnt(i)===0).map(p=>p.id),n=$('#c13b-note');
+  n.className='note '+(dups.length||miss.length?'bad':'good');
+  n.innerHTML=(dups.length?`<b>${dups.join(', ')}</b> matches two bands and is charged twice. BETWEEN includes both ends, so 5 kg is in B (2 to 5) and in C (5 to 10). `:'')+(miss.length?`<b>${miss.join(', ')}</b> falls into the gap. ${left?'LEFT JOIN keeps it with a NULL fee.':'INNER JOIN drops it: the parcel is never billed.'} `:'')+(!dups.length&&!miss.length?'Half-open bands with no gap: each parcel matches exactly one band.':'');
+ }
+ $('#c13b-lab').addEventListener('change',paint);paint();
+})();
+
+/* chapter 13: LATERAL top N */
+(()=>{
+ function paint(){
+  const n=+$('#c13c-n').value,cross=$('#c13c-form').value==='cross';$('#c13c-nv').textContent=n;
+  const rows=[];const runs=CUST.map(c=>{const top=ORD.filter(o=>o.customer_id===c.id).sort((a,b)=>b.total-a.total).slice(0,n);
+   top.forEach(o=>rows.push({l:c,r:o,k:'m'}));if(!top.length&&!cross)rows.push({l:c,r:null,k:'l'});
+   return `<div class="c14-lane"><b>run for ${c.name} (c.id = ${c.id})</b><div class="cells">${top.length?top.map(o=>`<span class="cell ok">o${o.id} · ${o.total}</span>`).join(''):`<span class="cell bad">no rows${cross?': customer dropped':': padded with NULL'}</span>`}</div></div>`;});
+  $('#c13c-runs').innerHTML=runs.join('');
+  $('#c13c-res').innerHTML=tbl([['c.name',r=>r.l.name],['t.id',r=>r.r&&r.r.id],['t.total',r=>r.r&&r.r.total]],rows,{cls:kindCls});
+ }
+ $('#c13c-lab').addEventListener('change',paint);$('#c13c-n').oninput=paint;paint();
+})();
+/* chapter 14: algorithms (adapted from the SQL and PostgreSQL explainer) */
+(()=>{
+ const CUST=[{id:1,n:'Ana'},{id:2,n:'Ben'},{id:3,n:'Chen'},{id:4,n:'Dara'}];
+ const ORD=[{id:101,k:1},{id:102,k:3},{id:103,k:1},{id:104,k:2},{id:105,k:3},{id:106,k:1}];
+ const NB=3;
+ const cName=k=>CUST.find(c=>c.id===k).n;
+ function simulate(alg,left){
+  const st={cmp:0,probes:0,lookups:0,inserts:0,out:[]};
+  const steps=[];let outer,inner,node,oLabel,iLabel,buckets=null,mark=-1;
+  const snap=(msg,o,i,extra={})=>steps.push({msg,o,i,mark,hot:extra.hot??-1,buckets:buckets&&buckets.map(b=>b.slice()),matched:extra.matched||[],cmp:st.cmp,probes:st.probes,lookups:st.lookups,inserts:st.inserts,out:st.out.slice()});
+  const pair=(c,o)=>(c?c.n+' ('+c.id+')':'NULL')+' · '+(o?'order '+o.id:'NULL');
+  if(alg==='nl'||alg==='nlidx'){
+   outer=CUST.map(c=>({key:c.id,label:c.n+' '+c.id}));inner=ORD.map(o=>({key:o.k,label:o.id+' c'+o.k}));
+   node=left?'Nested Loop Left Join':'Nested Loop';oLabel='outer: customers';iLabel=alg==='nl'?'inner: Seq Scan orders':'inner: Index Scan orders';
+   snap('Start. The outer side is customers. For each customer the inner side runs again.',-1,-1);
+   CUST.forEach((c,oi)=>{let found=0;
+    if(alg==='nlidx'){st.lookups++;const hits=ORD.map((o,ii)=>o.k===c.id?ii:-1).filter(x=>x>=0);
+     hits.forEach(ii=>{st.out.push(pair(c,ORD[ii]));found++;});
+     snap(`Outer tuple ${c.n} (id ${c.id}). One index lookup for customer_id = ${c.id} returns ${hits.length} TID(s). No other order is touched.`,oi,-1,{matched:hits});
+    }else{
+     ORD.forEach((o,ii)=>{st.cmp++;const m=o.k===c.id;if(m){st.out.push(pair(c,o));found++;}
+      snap(`${c.n} (id ${c.id}) vs order ${o.id} (customer_id ${o.k}): ${m?'match, emit':'no match'}.`,oi,ii);});
+    }
+    if(left&&!found){st.out.push(pair(c,null));snap(`${c.n} had no match. LEFT JOIN: emit ${c.n} with NULLs for the order columns.`,oi,-1);}
+   });
+   snap(`Done. ${alg==='nl'?st.cmp+' comparisons (4 × 6). This grows as outer × inner.':st.lookups+' index lookups, one per outer tuple.'}`,-1,-1);
+  }else if(alg==='hash'){
+   outer=ORD.map(o=>({key:o.k,label:o.id+' c'+o.k}));inner=CUST.map(c=>({key:c.id,label:c.n+' '+c.id}));
+   node=left?'Hash Right Join':'Hash Join';oLabel='outer: orders (probe)';iLabel='inner: customers (build)';
+   buckets=Array.from({length:NB},()=>[]);const matched=new Set();
+   snap(`Build phase. Read the inner side (customers, the smaller input) and put each tuple in bucket = id mod ${NB} (a toy hash function).`,-1,-1);
+   CUST.forEach((c,ii)=>{st.inserts++;buckets[c.id%NB].unshift(c.id);
+    snap(`Insert ${c.n} (id ${c.id}) into bucket ${c.id%NB}.`,-1,ii,{hot:c.id%NB});});
+   ORD.forEach((o,oi)=>{st.probes++;const b=o.k%NB;const res=[];
+    buckets[b].forEach(k=>{st.cmp++;if(k===o.k){st.out.push(pair(CUST.find(c=>c.id===k),o));matched.add(k);res.push(cName(k));}});
+    snap(`Probe with order ${o.id} (customer_id ${o.k}). Hash gives bucket ${b}. Compare with ${buckets[b].length} key(s) there: ${res.length?'match '+res.join(', '):'no match'}.`,oi,-1,{hot:b});});
+   if(left){const un=CUST.filter(c=>!matched.has(c.id));un.forEach(c=>st.out.push(pair(c,null)));
+    snap(`LEFT JOIN keeps every customer, and customers are the hashed side. So this is a Hash Right Join: a final pass over the hash table finds entries whose "matched" flag is still off (${un.map(c=>c.n).join(', ')}) and emits them with NULLs.`,-1,-1);}
+   snap(`Done. ${st.inserts} inserts + ${st.probes} probes, ${st.cmp} key comparisons. Each input was read once.`,-1,-1);
+  }else{
+   const O=ORD.slice().sort((a,b)=>a.k-b.k||a.id-b.id),I=CUST.slice();
+   outer=O.map(o=>({key:o.k,label:o.id+' c'+o.k}));inner=I.map(c=>({key:c.id,label:c.n+' '+c.id}));
+   node=left?'Merge Right Join':'Merge Join';oLabel='outer: orders by customer_id';iLabel='inner: customers by id';
+   const matched=new Set();let o=0,i=0;
+   snap('Both inputs are sorted on the key (orders by a Sort node, customers by reading customers_pkey in order). Pointers start at the first tuple of each.',0,0);
+   while(o<O.length&&i<I.length){
+    st.cmp++;const ok=O[o].k,ik=I[i].id;
+    if(ok<ik){snap(`Outer key ${ok} < inner key ${ik}: advance the outer pointer.`,o,i);o++;continue;}
+    if(ok>ik){let m='';if(left&&!matched.has(ik)){st.out.push(pair(I[i],null));m=` ${I[i].n} never matched, so emit it with NULLs.`;}
+     snap(`Outer key ${ok} > inner key ${ik}: advance the inner pointer.${m}`,o,i);i++;continue;}
+    mark=i;snap(`Keys equal (${ok}). Mark the inner position (${I[i].n}).`,o,i);
+    while(i<I.length&&I[i].id===ok){st.out.push(pair(I[i],O[o]));matched.add(I[i].id);snap(`Emit ${I[i].n} · order ${O[o].id}. Advance inner.`,o,i);i++;if(i<I.length)st.cmp++;}
+    o++;
+    if(o<O.length){st.cmp++;
+     if(O[o].k===I[mark].id){i=mark;snap(`Next outer tuple (order ${O[o].id}) has the same key ${O[o].k}. Restore the inner pointer to the mark.`,o,i);}
+     else snap(`Next outer key ${O[o].k} is new. Keep the inner pointer where it is.`,o,i);}
+   }
+   if(left)for(;i<I.length;i++)if(!matched.has(I[i].id)){st.out.push(pair(I[i],null));snap(`Outer side is finished. ${I[i].n} never matched, so emit it with NULLs.`,-1,i);}
+   mark=-1;snap(`Done. ${st.cmp} key comparisons. Each input was read once, plus the restores for duplicate outer keys.`,-1,-1);
+  }
+  return {steps,outer,inner,node,oLabel,iLabel};
+ }
+ let run,pos=0;
+ const lane=(label,arr,cur,extra)=>`<div class="c14-lane"><b>${label}</b><div class="cells">${arr.map((x,j)=>`<span class="cell${j===cur?' busy':''}${extra(j)}">${x.label}</span>`).join('')}</div></div>`;
+ function paint(){
+  const s=run.steps[pos],alg=$('#c14-alg').value;
+  $('#c14-node').textContent=run.node;
+  $('#c14-lanes').innerHTML=lane(run.oLabel,run.outer,s.o,()=>'')+lane(run.iLabel,run.inner,s.i,j=>(s.matched.includes(j)?' ok':'')+(alg==='merge'&&j===s.mark?' msg':''));
+  $('#c14-buckets').innerHTML=s.buckets?'<div class="c14-bk">'+s.buckets.map((b,j)=>`<div class="${j===s.hot?'hot':''}">bucket ${j}: ${b.length?b.map(cName).join(' → '):'(empty)'}</div>`).join('')+'</div>':'';
+  $('#c14-msg').textContent=s.msg;
+  $('#c14-stats').innerHTML=stat(s.cmp,'key comparisons')+(alg==='nlidx'?stat(s.lookups,'index lookups'):'')+(alg==='hash'?stat(s.inserts,'hash inserts')+stat(s.probes,'hash probes'):'')+stat(s.out.length,'rows out','ok')+(alg==='merge'?'<span class="pill">purple cell = mark</span>':'');
+  $('#c14-out').innerHTML=s.out.length?s.out.map(r=>`<div>${r}</div>`).join(''):'<span style="color:var(--mute)">no output rows yet</span>';
+  $('#c14-pos').textContent=`Step ${pos+1} of ${run.steps.length}`;
+  $('#c14-prev').disabled=pos===0;$('#c14-next').disabled=pos===run.steps.length-1;
+ }
+ function reset(){run=simulate($('#c14-alg').value,$('#c14-jt').value==='left');pos=0;paint();}
+ $('#c14-alg').onchange=reset;$('#c14-jt').onchange=reset;
+ $('#c14-first').onclick=()=>{pos=0;paint();};
+ $('#c14-prev').onclick=()=>{pos=Math.max(0,pos-1);paint();};
+ $('#c14-next').onclick=()=>{pos=Math.min(run.steps.length-1,pos+1);paint();};
+ $('#c14-end').onclick=()=>{pos=run.steps.length-1;paint();};
+ reset();
+})();
+
+(()=>{
+ const lg2=n=>Math.log2(Math.max(2,n));
+ function costs(o,i,idx,sorted,mem){
+  const B=4,spill=mem?0:2*(o+i)*(B-1)/B;
+  const sortCost=sorted?0:o*lg2(o)+i*lg2(i)+(mem?0:2*(o+i));
+  return [
+   {k:'Nested Loop, plain inner scan',v:o+o*i},
+   {k:'Nested Loop + inner index',v:idx?o+o*(Math.ceil(lg2(i))+4):null},
+   {k:'Hash Join',v:2*(o+i)+spill},
+   {k:'Merge Join',v:2*(o+i)+sortCost}];
+ }
+ const fmt=n=>n>=1e9?(n/1e9).toFixed(1)+' G':n>=1e6?(n/1e6).toFixed(1)+' M':n>=1e4?(n/1e3).toFixed(0)+' k':Math.round(n).toLocaleString('en-US');
+ const rows=v=>Math.round(10**v);
+ function paint(){
+  const o=rows(+$('#c14b-o').value),i=rows(+$('#c14b-i').value);
+  $('#c14b-ov').textContent=o.toLocaleString('en-US');$('#c14b-iv').textContent=i.toLocaleString('en-US');
+  const cs=costs(o,i,$('#c14b-idx').checked,$('#c14b-sorted').checked,$('#c14b-mem').checked);
+  const ok=cs.filter(c=>c.v!==null),min=Math.min(...ok.map(c=>c.v)),max=Math.max(...ok.map(c=>c.v));
+  const w=v=>Math.max(2,Math.log10(v+1)/Math.log10(max+1)*100);
+  const win=ok.filter(c=>c.v<=min*1.0001);
+  $('#c14b-bars').innerHTML=cs.map(c=>`<div><span>${c.k}</span><span class="meter"><i class="${c.v===null?'na':win.includes(c)?'win':'lose'}" style="width:${c.v===null?100:w(c.v)}%"></i></span><span>${c.v===null?'needs an index':fmt(c.v)+' units'}</span></div>`).join('')+'<p class="hint">Bars use a log scale, so a bar twice as long can mean many times more work.</p>';
+  $('#c14b-verdict').innerHTML=win.length>1?`<b>${win.map(c=>c.k).join(' and ')}</b> tie in this model. The real planner decides on smaller cost terms, such as random versus sequential page reads.`:`Cheapest in this model: <b>${win[0].k}</b>, about ${(ok.filter(c=>c!==win[0]).reduce((a,c)=>Math.min(a,c.v),Infinity)/min).toFixed(1)}× less work than the next one.`;
+ }
+ ['#c14b-o','#c14b-i'].forEach(s=>$(s).oninput=paint);
+ ['#c14b-idx','#c14b-sorted','#c14b-mem'].forEach(s=>$(s).onchange=paint);
+ paint();
+})();
+
+
+/* chapter 15: what the planner can do */
+(()=>{
+ const EMAIL="  -&gt;  Index Scan using customers_email_key on customers c\n        Index Cond: (email = 'ana@acmeshop.com'::text)";
+ function paint(){
+  const one=$('#c15-q').value==='one',ix=$('#c15-ix').checked,cast=$('#c15-cast').value==='cast',usable=ix&&!cast;
+  const cond=cast?'((o.customer_id)::text = (c.id)::text)':'(o.customer_id = c.id)';
+  let plan,read,note,cls;
+  if(one&&usable){plan=`Nested Loop\n${EMAIL}\n  -&gt;  Index Scan using orders_customer_id_idx on orders o\n        Index Cond: (customer_id = c.id)`;read=11;cls='good';
+   note='The outer side is 1 customer. For that one row, the inner index scan finds her about 10 orders. The join reads about 11 rows out of 1,100,000.';}
+  else if(one){plan=`Hash Join\n  Hash Cond: ${cond}\n  -&gt;  Seq Scan on orders o\n  -&gt;  Hash\n      ${EMAIL.trim()}`;read=1000001;cls='bad';
+   note=cast&&ix?'The index exists, but the join tests <code>customer_id::text</code>, and the index holds <code>customer_id</code>. It cannot answer the test, so every order is read to find about 10. Fix the types, or index the expression.':'No index on orders(customer_id), so the only way to find her orders is to read all of them. The planner may pick a Hash Join or a Nested Loop over a Seq Scan. Both read every order.';}
+  else{plan=`HashAggregate\n  Group Key: c.id\n  -&gt;  Hash Join\n        Hash Cond: ${cond}\n        -&gt;  Seq Scan on orders o\n        -&gt;  Hash\n              -&gt;  Seq Scan on customers c`;read=1100000;cls=ix?'warn':'good';
+   note=ix&&!cast?'The index exists, and the planner does not use it. That is correct. The report needs every order. 100,000 index lookups would read the same rows through random page reads. Two sequential scans and one hash table are cheaper.':'The report reads every row of both tables whatever you do. Hash Join reads each input once. An index would not help here.';}
+  $('#c15-plan').innerHTML=`<span class="nul">plan shape (costs and row counts removed; example scale)</span>\n`+plan;
+  $('#c15-stats').innerHTML=stat(read.toLocaleString('en-US'),'rows read (approx.)',read>100000?(one?'bad':'warn'):'ok')+stat(one?'about 10':'1,000,000','rows needed');
+  const n=$('#c15-note');n.className='note '+cls;n.innerHTML=note;
+ }
+ $('#c15-lab').addEventListener('change',paint);paint();
+})();
+
+/* chapter 16: from question to query */
+(()=>{
+ const E=[{id:1,name:'Maya',manager_id:null},{id:2,name:'Omar',manager_id:1},{id:3,name:'Lina',manager_id:1},{id:4,name:'Sam',manager_id:2}];
+ const P=[{id:1,order_id:101,amount:250},{id:2,order_id:103,amount:100},{id:4,order_id:999,amount:30}];
+ const cn=[['c.name',r=>r.l&&r.l.name]],oc=[['o.id',r=>r.r&&r.r.id],['o.total',r=>r.r&&r.r.total]];
+ const Q=[
+  {t:'Orders with the customer name, only orders that have a customer',sql:'SELECT o.id, o.total, c.name\nFROM orders o\nJOIN customers c ON c.id = o.customer_id;',why:'INNER JOIN. Every order has at most one customer, so nothing multiplies. The guest order drops out, which is what "only orders that have a customer" asks for.',
+   res:()=>[[...oc,...cn],doJoin(CUST,ORD,onCust,'inner')]},
+  {t:'Every customer, with their orders if any',sql:'SELECT c.name, o.id, o.total\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id;',why:'LEFT JOIN from the table that must stay whole. Dara is kept with NULLs.',
+   res:()=>[[...cn,...oc],doJoin(CUST,ORD,onCust,'left')]},
+  {t:'Number of orders per customer, including 0',sql:'SELECT c.name, count(o.id) AS orders\nFROM customers c\nLEFT JOIN orders o ON o.customer_id = c.id\nGROUP BY c.id, c.name;',why:'LEFT JOIN to keep Dara, and count(o.id), not count(*), so her padded row counts as 0 (chapter 11).',
+   res:()=>{const r=doJoin(CUST,ORD,onCust,'left');return [[['c.name','name'],['orders','n']],CUST.map(c=>({name:c.name,n:r.filter(x=>x.l===c&&x.r).length,k:'m'}))];}},
+  {t:'Customers who ordered at least once, each listed once',sql:'SELECT c.name FROM customers c\nWHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);',why:'A semi-join. It returns each customer once and stops at the first order. A JOIN would return Ana twice.',
+   res:()=>[cn,doJoin(CUST,ORD,onCust,'semi')]},
+  {t:'Customers who never ordered',sql:'SELECT c.name FROM customers c\nWHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id);',why:'An anti-join. NOT EXISTS is safe with the NULL in guest order 105. NOT IN would return nothing (chapter 10).',
+   res:()=>[cn,doJoin(CUST,ORD,onCust,'anti')]},
+  {t:'Compare orders and payments: what is missing on either side',sql:'SELECT COALESCE(o.id, p.order_id) AS order_ref, o.total, p.amount\nFROM orders o\nFULL JOIN payments p ON p.order_id = o.id;',why:'FULL JOIN keeps unmatched rows from both sides. Yellow rows are unpaid orders. Purple rows are payments for unknown orders.',
+   res:()=>[[['order_ref',r=>r.l?r.l.id:r.r.order_id],['o.total',r=>r.l&&r.l.total],['p.amount',r=>r.r&&r.r.amount]],doJoin(ORD,P,(o,p)=>eq3(p.order_id,o.id),'full')]},
+  {t:'Every size in every colour',sql:"SELECT s.size, c.colour\nFROM (VALUES ('S'), ('M')) s(size)\nCROSS JOIN (VALUES ('Black'), ('White')) c(colour);",why:'CROSS JOIN: all combinations, 2 × 2 = 4 rows.',
+   res:()=>[[['size',r=>r.l.s],['colour',r=>r.r.c]],doJoin([{s:'S'},{s:'M'}],[{c:'Black'},{c:'White'}],null,'cross')]},
+  {t:'Each employee with their manager, including the top boss',sql:'SELECT e.name AS employee, m.name AS manager\nFROM employees e\nLEFT JOIN employees m ON m.id = e.manager_id;',why:'A self join. LEFT keeps Maya, whose manager_id is NULL.',
+   res:()=>[[['employee',r=>r.l.name],['manager',r=>r.r&&r.r.name]],doJoin(E,E,(e,m)=>eq3(m.id,e.manager_id),'left')]},
+  {t:'Each customer with their biggest order',sql:'SELECT c.name, t.id, t.total\nFROM customers c\nLEFT JOIN LATERAL (\n  SELECT o.id, o.total FROM orders o\n  WHERE o.customer_id = c.id\n  ORDER BY o.total DESC LIMIT 1\n) t ON true;',why:'LATERAL runs the subquery once per customer, so LIMIT 1 applies per customer. Dara is kept with NULLs.',
+   res:()=>[[...cn,['t.id',r=>r.r&&r.r.id],['t.total',r=>r.r&&r.r.total]],CUST.map(c=>{const t=ORD.filter(o=>o.customer_id===c.id).sort((a,b)=>b.total-a.total)[0];return {l:c,r:t||null,k:t?'m':'l'};})]}];
+ $('#c16-q').innerHTML=Q.map((q,i)=>`<option value="${i}">${q.t}</option>`).join('');
+ function paint(){const q=Q[+$('#c16-q').value],[cols,rows]=q.res();
+  $('#c16-sql').textContent=q.sql;$('#c16-why').innerHTML=q.why;$('#c16-res').innerHTML=tbl(cols,rows,{cls:kindCls})+LEGEND;}
+ $('#c16-q').onchange=paint;paint();
+})();
+
+/* chapter 16: all joins on the same data */
+(()=>{
+ const lbl=r=>`${r.l?r.l.name:'NULL'} · ${r.r?'o'+r.r.id:'NULL'}`;
+ const TY=[['inner','INNER JOIN'],['left','LEFT JOIN'],['right','RIGHT JOIN'],['full','FULL JOIN'],['semi','WHERE EXISTS'],['anti','WHERE NOT EXISTS'],['cross','CROSS JOIN']];
+ const bg={m:'rgba(62,207,142,.25)',l:'rgba(245,185,66,.3)',r:'rgba(181,140,255,.35)'};
+ $('#c16b-cards').innerHTML=TY.map(([t,name])=>{const rows=doJoin(CUST,ORD,onCust,t);
+  return `<div class="card"><h5>${name} <span class="pill">${rows.length} rows</span></h5><div>${rows.map(r=>`<span class="pill" style="background:${bg[r.k]}">${t==='semi'||t==='anti'?r.l.name:lbl(r)}</span>`).join(' ')}</div></div>`;}).join('')+`<div class="card">${LEGEND}<p class="hint">customers × orders on <code>o.customer_id = c.id</code>. Semi and anti joins return customer rows only.</p></div>`;
+})();
+</script>
+</body>
+</html>
