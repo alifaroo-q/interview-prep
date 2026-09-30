@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+:root{
+  --bg:#0f1218;--panel:#161b24;--panel2:#1d2430;--line:#2b3445;--text:#e3e8f0;--mute:#93a0b4;
+  --edge:#4ea1ff;--svc:#3ecf8e;--data:#f5b942;--msg:#b58cff;--bad:#ff6b6b;--plat:#7ad3e0;--client:#e0e6ef;
+  --ok:#3ecf8e;--warn:#f5b942;
+}
+body.light{--bg:#f6f7fa;--panel:#fff;--panel2:#eef1f6;--line:#d6dce6;--text:#1b2230;--mute:#5d6b80;--client:#39465a}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+code,pre,.mono{font-family:ui-monospace,"JetBrains Mono",Consolas,monospace;font-size:.88em}
+code{background:var(--panel2);padding:1px 5px;border-radius:4px}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;line-height:1.45}
+a{color:var(--edge)}
+/* layout */
+#side{position:fixed;top:0;left:0;bottom:0;width:290px;background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:16px 12px;z-index:5}
+#side h1{font-size:17px;margin:0 6px 4px}
+#side .sub{color:var(--mute);font-size:13px;margin:0 6px 10px}
+#prog{height:6px;background:var(--panel2);border-radius:3px;margin:0 6px 12px;overflow:hidden}
+#prog i{display:block;height:100%;width:0;background:var(--svc);transition:width .4s}
+#nav a{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-radius:6px;color:var(--text);text-decoration:none;font-size:14px;line-height:1.35}
+#nav a:hover{background:var(--panel2)}
+#nav a.cur{background:var(--panel2);box-shadow:inset 3px 0 var(--edge)}
+#nav a .num{color:var(--mute);min-width:22px;font-variant-numeric:tabular-nums}
+#nav a.done .num{color:var(--svc)}
+#nav a.done .num::after{content:" ✓"}
+#tools{display:flex;gap:6px;margin:14px 6px 0}
+main{margin-left:290px;padding:30px 40px 120px;max-width:1040px}
+#menu{display:none}
+@media(max-width:900px){#side{transform:translateX(-100%);transition:.25s}#side.open{transform:none}main{margin-left:0;padding:20px 16px 100px}#menu{display:block;position:fixed;top:10px;right:10px;z-index:6}}
+/* sections */
+section.ch{padding:10px 0 40px;border-bottom:1px solid var(--line);margin-bottom:30px}
+section.ch>h2{font-size:28px;line-height:1.2;margin:10px 0 4px}
+.topics{color:var(--mute);font-size:13px;margin-bottom:14px}
+h3{font-size:20px;margin:30px 0 8px}
+h4{font-size:16px;margin:20px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+p{margin:10px 0}
+.lead{font-size:18px}
+.note{border-left:3px solid var(--edge);background:var(--panel);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0}
+.note.warn{border-color:var(--warn)}.note.bad{border-color:var(--bad)}.note.good{border-color:var(--ok)}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel2)}
+.done-btn{margin-top:18px}
+/* controls */
+button,select,input[type=text]{font:inherit;font-size:14px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 12px}
+button{cursor:pointer}
+button:hover{border-color:var(--edge)}
+button.pri{background:var(--edge);border-color:var(--edge);color:#fff}
+button.dan{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.45;cursor:default}
+label{font-size:14px;color:var(--mute)}
+input[type=range]{vertical-align:middle;width:160px}
+/* widget box */
+.lab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin:18px 0}
+.lab>.t{font-weight:600;margin-bottom:4px}
+.lab>.t::before{content:"▶ ";color:var(--edge)}
+.lab .hint{color:var(--mute);font-size:14px;margin:0 0 10px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.log{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;height:190px;overflow:auto;font:13px/1.5 ui-monospace,Consolas,monospace}
+.log .ok{color:var(--ok)}.log .bad{color:var(--bad)}.log .warn{color:var(--warn)}.log .info{color:var(--edge)}.log .msg{color:var(--msg)}.log .mute{color:var(--mute)}
+.stat{display:inline-block;background:var(--panel2);border-radius:8px;padding:6px 12px;margin:3px;font-size:14px}
+.stat b{font-size:18px;display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+/* diagram nodes */
+.stage{padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:auto}
+.col{display:flex;flex-direction:column;align-items:center;gap:4px}
+.row{display:flex;justify-content:center;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.row.mid{align-items:center}
+.n{border:2px solid var(--svc);color:var(--text);background:var(--panel);border-radius:8px;padding:6px 12px;font-size:14px;text-align:center;min-width:110px;transition:opacity .35s,box-shadow .35s,transform .35s}
+.n small{display:block;color:var(--mute);font-size:11.5px}
+.n.edge{border-color:var(--edge)}.n.svc{border-color:var(--svc)}.n.data{border-color:var(--data);border-radius:14px 14px 8px 8px}.n.msg{border-color:var(--msg)}.n.bad{border-color:var(--bad)}.n.plat{border-color:var(--plat);border-style:dashed}.n.client{border-color:var(--client)}
+.n.dim{opacity:.35}.n.dead{border-color:var(--bad);opacity:.5;text-decoration:line-through}
+.n.hot{box-shadow:0 0 0 4px rgba(78,161,255,.35)}
+.n.hotok{box-shadow:0 0 0 4px rgba(62,207,142,.4)}
+.n.hotbad{box-shadow:0 0 0 4px rgba(255,107,107,.45)}
+.ar{color:var(--mute);font-size:18px;line-height:1;text-align:center;transition:opacity .35s}
+.ar small{font-size:11px;display:block}
+.box{border:1px dashed var(--line);border-radius:10px;padding:10px;position:relative}
+.box>.bt{position:absolute;top:-10px;left:10px;background:var(--bg);padding:0 6px;font-size:12px;color:var(--mute)}
+.fan{display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
+.fan>.col{gap:2px}
+/* build-up */
+.build{margin:16px 0}
+.build .off{opacity:0 !important;pointer-events:none}
+.build .fresh{animation:fresh 1.1s}
+@keyframes fresh{0%{transform:scale(.92);box-shadow:0 0 0 6px rgba(78,161,255,.55)}100%{transform:none}}
+.build .caps{min-height:52px;margin-top:10px}
+.build .cap{display:none;margin:0;background:var(--panel);border-radius:8px;padding:10px 14px;border:1px solid var(--line)}
+.build .cap.on{display:block}
+.build .ctl{display:flex;gap:8px;align-items:center;margin-top:8px}
+.build .ctl span{color:var(--mute);font-size:13px}
+/* misc widget bits */
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--panel2);border:1px solid var(--line)}
+.pill.ok{border-color:var(--ok);color:var(--ok)}.pill.bad{border-color:var(--bad);color:var(--bad)}.pill.warn{border-color:var(--warn);color:var(--warn)}
+.cells{display:flex;flex-wrap:wrap;gap:4px}
+.cell{min-width:34px;height:30px;border:1px solid var(--line);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--panel2);padding:0 4px}
+.cell.msg{border-color:var(--msg)}.cell.bad{border-color:var(--bad);color:var(--bad)}.cell.ok{border-color:var(--ok)}.cell.busy{border-color:var(--warn);background:rgba(245,185,66,.18)}
+.meter{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--svc);transition:width .3s}
+.flip{cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:90px}
+.flip .b{display:none;color:var(--mute);margin-top:6px;font-size:14px}
+.flip.open .b{display:block}
+.chk label{display:block;color:var(--text);padding:3px 0}
+.state{display:inline-block;padding:6px 14px;border-radius:8px;font-weight:700;border:2px solid var(--line);margin:2px}
+.state.on.closed{border-color:var(--ok);color:var(--ok)}.state.on.open{border-color:var(--bad);color:var(--bad)}.state.on.half{border-color:var(--warn);color:var(--warn)}
+.wf{position:relative;height:22px;margin:3px 0;font-size:12px}
+.wf i{position:absolute;top:0;height:100%;background:var(--edge);border-radius:4px;opacity:.85}
+.wf span{position:absolute;left:0;top:2px;width:120px;color:var(--mute)}
+.wfwrap{padding-left:125px;position:relative}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:14px}
+</style>
+</head>
+<body>
+<button id="menu" onclick="document.getElementById('side').classList.toggle('open')">☰ Menu</button>
+<aside id="side">
+  <h1>{{SHORT_TITLE}}</h1>
+  <div class="sub">{{N}} chapters · hands-on labs</div>
+  <div id="prog"><i></i></div>
+  <nav id="nav"></nav>
+  <div id="tools"><button onclick="document.body.classList.toggle('light')">Light / dark</button><button onclick="localStorage.removeItem('{{SLUG}}-done');location.reload()">Reset progress</button></div>
+</aside>
+<main>
+
+<style>
+/* optional extras used by the DNS explainer: packet/log blocks and hex groups */
+.pkt{font:12.5px/1.45 ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;white-space:pre-wrap;margin:8px 0}
+.pkt .s{color:var(--mute)} .pkt .k{color:var(--msg)} .pkt .a{color:var(--ok)} .pkt .w{color:var(--warn)}
+</style>
+
+<!-- One chapter section per chapter. The side menu is built from id + data-title. -->
+<section class="ch" id="c1" data-title="Example chapter">
+<h2>1. Example chapter</h2>
+<div class="topics">Sources: name the primary sources for this chapter here</div>
+<p class="lead">Start with a one or two sentence plain definition of the topic.</p>
+<p>Then explain the problem it solves and how it works. Keep sentences short.</p>
+
+<!-- Build-up diagram: each element with data-s="n" appears at step n. One caption per step. -->
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">Client</div>
+  <div class="ar" data-s="2">↓</div>
+  <div class="n edge" data-s="2">Edge component</div>
+  <div class="fan" data-s="3"><div class="n svc">Service A</div><div class="n svc">Service B</div></div>
+  <div class="n data" data-s="4">Database</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">Step 1 adds one part and says what it does.</p>
+  <p class="cap" data-s="2">Step 2 adds the next part.</p>
+  <p class="cap" data-s="3">Step 3 adds a fan-out.</p>
+  <p class="cap" data-s="4">Step 4 adds storage.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<!-- Lab: a .lab box with controls and an output area. Wire it up in the script below. -->
+<div class="lab" id="w-example">
+ <div class="t">Lab: example</div>
+ <p class="hint">Say what to try and what to watch for.</p>
+ <div class="bar"><label><input type="checkbox" id="ex-fail"> Make it fail</label><button class="pri" id="ex-run">Run</button></div>
+ <div class="log" id="ex-log"></div>
+</div>
+
+<table>
+<tr><th>Node class</th><th>Use for</th></tr>
+<tr><td><code>n client</code></td><td>users, browsers, devices</td></tr>
+<tr><td><code>n edge</code></td><td>network and edge parts (DNS, CDN, load balancer, gateway)</td></tr>
+<tr><td><code>n svc</code></td><td>services and workers</td></tr>
+<tr><td><code>n data</code></td><td>databases and caches</td></tr>
+<tr><td><code>n msg</code></td><td>brokers, queues, events</td></tr>
+<tr><td><code>n plat</code></td><td>platform and ops (dashed)</td></tr>
+<tr><td><code>n bad</code></td><td>failures, anti-patterns</td></tr>
+</table>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+</main>
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const rnd=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function log(el,msg,cls=''){if(typeof el==='string')el=$(el);const d=document.createElement('div');d.className=cls;d.textContent=msg;el.appendChild(d);el.scrollTop=el.scrollHeight;}
+const stat=(v,label,color)=>`<span class="stat"><b${color?` style="color:var(--${color})"`:''}>${v}</b>${label}</span>`;
+
+/* ---------- nav + progress ---------- */
+const secs=$$('section.ch'),done=new Set(JSON.parse(localStorage.getItem('{{SLUG}}-done')||'[]'));
+secs.forEach((s,i)=>{const a=document.createElement('a');a.href='#'+s.id;a.dataset.id=s.id;a.innerHTML=`<span class="num">${i+1}</span><span>${s.dataset.title}</span>`;a.onclick=()=>$('#side').classList.remove('open');$('#nav').appendChild(a);
+ $('.done-btn',s).onclick=()=>{done.has(s.id)?done.delete(s.id):done.add(s.id);localStorage.setItem('{{SLUG}}-done',JSON.stringify([...done]));paintNav();};});
+function paintNav(){$$('#nav a').forEach(a=>a.classList.toggle('done',done.has(a.dataset.id)));secs.forEach(s=>$('.done-btn',s).textContent=done.has(s.id)?'✓ Read (click to undo)':'Mark chapter as read');$('#prog i').style.width=(done.size/secs.length*100)+'%';}
+paintNav();
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)$$('#nav a').forEach(a=>a.classList.toggle('cur',a.dataset.id===e.target.id));}),{rootMargin:'-35% 0px -60% 0px'});
+secs.forEach(s=>io.observe(s));
+
+/* ---------- build-up diagrams ---------- */
+$$('.build').forEach(b=>{
+ const items=$$('.stage [data-s]',b),caps=$$('.cap',b),ctl=$('.ctl',b);
+ const max=Math.max(...items.map(e=>+e.dataset.s),...caps.map(c=>+c.dataset.s));let cur=1;
+ ctl.innerHTML='<button data-a="first">⏮</button><button data-a="prev">◀ Back</button><button class="pri" data-a="next">Next ▶</button><button data-a="all">Show all</button><span></span>';
+ function show(fresh){items.forEach(e=>{const s=+e.dataset.s;e.classList.toggle('off',s>cur);e.classList.remove('fresh');if(fresh&&s===cur){void e.offsetWidth;e.classList.add('fresh');}});
+  caps.forEach(c=>c.classList.toggle('on',+c.dataset.s===cur));$('span',ctl).textContent=`Step ${cur} of ${max}`;$('[data-a=prev]',ctl).disabled=cur<=1;$('[data-a=next]',ctl).disabled=cur>=max;}
+ ctl.onclick=e=>{const a=e.target.dataset.a;if(!a)return;cur=a==='next'?cur+1:a==='prev'?cur-1:a==='first'?1:max;cur=Math.max(1,Math.min(max,cur));show(a==='next');};
+ show(false);
+});
+
+
+/* ---------- labs: one IIFE per lab ---------- */
+(()=>{const lg=$('#ex-log');
+ $('#ex-run').onclick=async()=>{lg.innerHTML='';log(lg,'Client → Service A','info');await sleep(400);
+  $('#ex-fail').checked?log(lg,'✗ Service A timed out','bad'):log(lg,'✓ 200 OK','ok');};
+})();
+</script>
+</body>
+</html>

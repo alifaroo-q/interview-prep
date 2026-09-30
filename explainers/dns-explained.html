@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DNS, Explained End to End</title>
+<style>
+:root{
+  --bg:#0f1218;--panel:#161b24;--panel2:#1d2430;--line:#2b3445;--text:#e3e8f0;--mute:#93a0b4;
+  --edge:#4ea1ff;--svc:#3ecf8e;--data:#f5b942;--msg:#b58cff;--bad:#ff6b6b;--plat:#7ad3e0;--client:#e0e6ef;
+  --ok:#3ecf8e;--warn:#f5b942;
+}
+body.light{--bg:#f6f7fa;--panel:#fff;--panel2:#eef1f6;--line:#d6dce6;--text:#1b2230;--mute:#5d6b80;--client:#39465a}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+code,pre,.mono{font-family:ui-monospace,"JetBrains Mono",Consolas,monospace;font-size:.88em}
+code{background:var(--panel2);padding:1px 5px;border-radius:4px}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;line-height:1.45}
+a{color:var(--edge)}
+/* layout */
+#side{position:fixed;top:0;left:0;bottom:0;width:290px;background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:16px 12px;z-index:5}
+#side h1{font-size:17px;margin:0 6px 4px}
+#side .sub{color:var(--mute);font-size:13px;margin:0 6px 10px}
+#prog{height:6px;background:var(--panel2);border-radius:3px;margin:0 6px 12px;overflow:hidden}
+#prog i{display:block;height:100%;width:0;background:var(--svc);transition:width .4s}
+#nav a{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-radius:6px;color:var(--text);text-decoration:none;font-size:14px;line-height:1.35}
+#nav a:hover{background:var(--panel2)}
+#nav a.cur{background:var(--panel2);box-shadow:inset 3px 0 var(--edge)}
+#nav a .num{color:var(--mute);min-width:22px;font-variant-numeric:tabular-nums}
+#nav a.done .num{color:var(--svc)}
+#nav a.done .num::after{content:" ✓"}
+#tools{display:flex;gap:6px;margin:14px 6px 0}
+main{margin-left:290px;padding:30px 40px 120px;max-width:1040px}
+#menu{display:none}
+@media(max-width:900px){#side{transform:translateX(-100%);transition:.25s}#side.open{transform:none}main{margin-left:0;padding:20px 16px 100px}#menu{display:block;position:fixed;top:10px;right:10px;z-index:6}}
+/* sections */
+section.ch{padding:10px 0 40px;border-bottom:1px solid var(--line);margin-bottom:30px}
+section.ch>h2{font-size:28px;line-height:1.2;margin:10px 0 4px}
+.topics{color:var(--mute);font-size:13px;margin-bottom:14px}
+h3{font-size:20px;margin:30px 0 8px}
+h4{font-size:16px;margin:20px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+p{margin:10px 0}
+.lead{font-size:18px}
+.note{border-left:3px solid var(--edge);background:var(--panel);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0}
+.note.warn{border-color:var(--warn)}.note.bad{border-color:var(--bad)}.note.good{border-color:var(--ok)}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel2)}
+.done-btn{margin-top:18px}
+/* controls */
+button,select,input[type=text]{font:inherit;font-size:14px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 12px}
+button{cursor:pointer}
+button:hover{border-color:var(--edge)}
+button.pri{background:var(--edge);border-color:var(--edge);color:#fff}
+button.dan{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.45;cursor:default}
+label{font-size:14px;color:var(--mute)}
+input[type=range]{vertical-align:middle;width:160px}
+/* widget box */
+.lab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin:18px 0}
+.lab>.t{font-weight:600;margin-bottom:4px}
+.lab>.t::before{content:"▶ ";color:var(--edge)}
+.lab .hint{color:var(--mute);font-size:14px;margin:0 0 10px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.log{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;height:190px;overflow:auto;font:13px/1.5 ui-monospace,Consolas,monospace}
+.log .ok{color:var(--ok)}.log .bad{color:var(--bad)}.log .warn{color:var(--warn)}.log .info{color:var(--edge)}.log .msg{color:var(--msg)}.log .mute{color:var(--mute)}
+.stat{display:inline-block;background:var(--panel2);border-radius:8px;padding:6px 12px;margin:3px;font-size:14px}
+.stat b{font-size:18px;display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+/* diagram nodes */
+.stage{padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:auto}
+.col{display:flex;flex-direction:column;align-items:center;gap:4px}
+.row{display:flex;justify-content:center;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.row.mid{align-items:center}
+.n{border:2px solid var(--svc);color:var(--text);background:var(--panel);border-radius:8px;padding:6px 12px;font-size:14px;text-align:center;min-width:110px;transition:opacity .35s,box-shadow .35s,transform .35s}
+.n small{display:block;color:var(--mute);font-size:11.5px}
+.n.edge{border-color:var(--edge)}.n.svc{border-color:var(--svc)}.n.data{border-color:var(--data);border-radius:14px 14px 8px 8px}.n.msg{border-color:var(--msg)}.n.bad{border-color:var(--bad)}.n.plat{border-color:var(--plat);border-style:dashed}.n.client{border-color:var(--client)}
+.n.dim{opacity:.35}.n.dead{border-color:var(--bad);opacity:.5;text-decoration:line-through}
+.n.hot{box-shadow:0 0 0 4px rgba(78,161,255,.35)}
+.n.hotok{box-shadow:0 0 0 4px rgba(62,207,142,.4)}
+.n.hotbad{box-shadow:0 0 0 4px rgba(255,107,107,.45)}
+.ar{color:var(--mute);font-size:18px;line-height:1;text-align:center;transition:opacity .35s}
+.ar small{font-size:11px;display:block}
+.box{border:1px dashed var(--line);border-radius:10px;padding:10px;position:relative}
+.box>.bt{position:absolute;top:-10px;left:10px;background:var(--bg);padding:0 6px;font-size:12px;color:var(--mute)}
+.fan{display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
+.fan>.col{gap:2px}
+/* build-up */
+.build{margin:16px 0}
+.build .off{opacity:0 !important;pointer-events:none}
+.build .fresh{animation:fresh 1.1s}
+@keyframes fresh{0%{transform:scale(.92);box-shadow:0 0 0 6px rgba(78,161,255,.55)}100%{transform:none}}
+.build .caps{min-height:52px;margin-top:10px}
+.build .cap{display:none;margin:0;background:var(--panel);border-radius:8px;padding:10px 14px;border:1px solid var(--line)}
+.build .cap.on{display:block}
+.build .ctl{display:flex;gap:8px;align-items:center;margin-top:8px}
+.build .ctl span{color:var(--mute);font-size:13px}
+/* misc widget bits */
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--panel2);border:1px solid var(--line)}
+.pill.ok{border-color:var(--ok);color:var(--ok)}.pill.bad{border-color:var(--bad);color:var(--bad)}.pill.warn{border-color:var(--warn);color:var(--warn)}
+.cells{display:flex;flex-wrap:wrap;gap:4px}
+.cell{min-width:34px;height:30px;border:1px solid var(--line);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--panel2);padding:0 4px}
+.cell.msg{border-color:var(--msg)}.cell.bad{border-color:var(--bad);color:var(--bad)}.cell.ok{border-color:var(--ok)}.cell.busy{border-color:var(--warn);background:rgba(245,185,66,.18)}
+.meter{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--svc);transition:width .3s}
+.flip{cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:90px}
+.flip .b{display:none;color:var(--mute);margin-top:6px;font-size:14px}
+.flip.open .b{display:block}
+.chk label{display:block;color:var(--text);padding:3px 0}
+.state{display:inline-block;padding:6px 14px;border-radius:8px;font-weight:700;border:2px solid var(--line);margin:2px}
+.state.on.closed{border-color:var(--ok);color:var(--ok)}.state.on.open{border-color:var(--bad);color:var(--bad)}.state.on.half{border-color:var(--warn);color:var(--warn)}
+.wf{position:relative;height:22px;margin:3px 0;font-size:12px}
+.wf i{position:absolute;top:0;height:100%;background:var(--edge);border-radius:4px;opacity:.85}
+.wf span{position:absolute;left:0;top:2px;width:120px;color:var(--mute)}
+.wfwrap{padding-left:125px;position:relative}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:14px}
+</style>
+</head>
+<body>
+<button id="menu" onclick="document.getElementById('side').classList.toggle('open')">☰ Menu</button>
+<aside id="side">
+  <h1>DNS, Explained</h1>
+  <div class="sub">14 chapters · end-to-end · hands-on labs</div>
+  <div id="prog"><i></i></div>
+  <nav id="nav"></nav>
+  <div id="tools"><button onclick="document.body.classList.toggle('light')">Light / dark</button><button onclick="localStorage.removeItem('dns-done');location.reload()">Reset progress</button></div>
+</aside>
+<main>
+
+<style>
+.pkt{font:12.5px/1.45 ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;white-space:pre-wrap;margin:8px 0}
+.pkt .s{color:var(--mute)} .pkt .k{color:var(--msg)} .pkt .a{color:var(--ok)} .pkt .w{color:var(--warn)}
+.hx span{padding:1px 2px;border-radius:3px;margin-right:2px;display:inline-block}
+.hx .h1{background:rgba(78,161,255,.25)} .hx .h2{background:rgba(181,140,255,.25)} .hx .h3{background:rgba(62,207,142,.25)} .hx .h4{background:rgba(245,185,66,.25)} .hx .h5{background:rgba(255,107,107,.22)}
+#sim-comp .n{min-width:120px}
+.tree{font:14px/1.6 ui-monospace,Consolas,monospace}
+</style>
+
+<!-- ============ D1 ============ -->
+<section class="ch" id="d1" data-title="What DNS is">
+<h2>1. What DNS is</h2>
+<div class="topics">Sources: Cloudflare Learning Center "What is DNS?", RFC 1034 / 1035</div>
+<p class="lead">DNS (the Domain Name System) is a worldwide, distributed database that turns names people can read, like <code>www.cloudflare.com</code>, into the data computers need, most often an IP address like <code>104.16.124.96</code>.</p>
+<p>Computers find each other by IP address. People remember names. DNS sits between the two. Every time you open a website, send an email or call an API, a DNS lookup happens first. Usually it takes a few milliseconds because the answer is already stored nearby. When it is not, the lookup walks a chain of servers across the world.</p>
+<p>No single company runs DNS. The database is split into pieces called <b>zones</b>. Each zone is run by whoever owns it. ICANN coordinates the top. Verisign runs <code>.com</code>. You run <code>yoursite.com</code>. A lookup follows pointers from one owner to the next until it reaches the one who knows the answer.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">You type www.acmeshop.com</div>
+  <div class="ar" data-s="2">↓ "what is the IP of www.acmeshop.com?"</div>
+  <div class="n edge" data-s="2">DNS</div>
+  <div class="ar" data-s="3">↓ 203.0.113.10</div>
+  <div class="n svc" data-s="3">Browser connects to 203.0.113.10</div>
+  <div class="n data" data-s="4">…and stores the answer for its TTL, so the next visit skips DNS</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The browser has a name. It can't open a connection to a name. The network only moves packets between IP addresses.</p>
+  <p class="cap" data-s="2">So it asks DNS. At this level DNS is a black box that answers one kind of question: "for this <b>name</b> and this <b>record type</b>, what are the records?"</p>
+  <p class="cap" data-s="3">DNS answers with an IP address. Only now can the browser start TCP and TLS to the server.</p>
+  <p class="cap" data-s="4">Every answer carries a <b>TTL</b> (time to live) in seconds. Anyone along the way may keep the answer that long. This caching is why DNS is fast and why it can handle the whole internet's traffic.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<p>DNS stores much more than IP addresses. It tells mail servers where to deliver email (MX), proves who owns a domain (TXT), says which certificate authorities may issue certificates (CAA), and much more. Chapter 10 covers the record types.</p>
+<p>The rest of this guide opens the black box: how names are built (ch. 2), every component in a lookup (ch. 3), the full lookup step by step (ch. 4), and then each part in depth.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D2 ============ -->
+<section class="ch" id="d2" data-title="How names are built">
+<h2>2. How domain names are built</h2>
+<div class="topics">Sources: RFC 1034 §3, Cloudflare "What is a DNS zone?", "What is a top-level domain?"</div>
+<p class="lead">A domain name is a path through a tree, read from right to left. Each part between dots is a <b>label</b>. The tree's top is the <b>root</b>, written as an empty label, which is why a fully written name ends with a dot.</p>
+<p><code>www.acmeshop.com.</code> is read backwards: start at the root (the final dot), go to <code>com</code>, then to <code>acmeshop</code>, then to <code>www</code>. The trailing dot is usually hidden, but it is always there. A name written with it is a <b>fully qualified domain name</b> (FQDN).</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n edge" data-s="1">. (root)</div>
+  <div class="fan" data-s="2"><div class="n edge">com</div><div class="n edge">org</div><div class="n edge">uk</div><div class="n edge">arpa</div></div>
+  <div class="fan" data-s="3"><div class="n svc">acmeshop.com</div><div class="n svc">google.com</div><div class="n svc">co.uk</div></div>
+  <div class="fan" data-s="4"><div class="n data">www.acmeshop.com</div><div class="n data">mail.acmeshop.com</div><div class="n data">api.acmeshop.com</div></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The <b>root</b>. It has no name. Every lookup that has nothing cached starts here.</p>
+  <p class="cap" data-s="2"><b>Top-level domains</b> (TLDs) sit under the root. Generic ones (gTLDs) like <code>.com</code>, <code>.org</code>, <code>.app</code>; country-code ones (ccTLDs) like <code>.uk</code>, <code>.pk</code>, <code>.jp</code>; and the infrastructure TLD <code>.arpa</code>, used for reverse lookups.</p>
+  <p class="cap" data-s="3"><b>Second-level domains</b>: the part people register, like <code>acmeshop.com</code>. Some ccTLDs add a level first. In <code>acmeshop.co.uk</code>, the registrable part sits under <code>co.uk</code>.</p>
+  <p class="cap" data-s="4"><b>Subdomains</b>: anything the owner creates under their domain, as many levels deep as they like. <code>www</code> is just a subdomain by tradition. It has no special meaning to DNS.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<h3>Domains vs zones</h3>
+<p>A <b>domain</b> is a branch of the tree: a name and everything under it. A <b>zone</b> is the part of the tree that one set of servers is responsible for. They are often the same, but not always. The <code>.com</code> zone does not contain <code>www.acmeshop.com</code>. It only contains a pointer that says "for anything under <code>acmeshop.com</code>, ask these nameservers". That pointer is a <b>delegation</b>, made with NS records. Delegation is what lets millions of owners each run their own piece without a central database.</p>
+<div class="lab" id="w-name">
+ <div class="t">Lab: take a name apart</div>
+ <p class="hint">Type any hostname. See its labels, levels, and who is responsible at each step.</p>
+ <div class="bar"><input type="text" id="nm-in" value="api.shop.acmeshop.co.uk" size="36"><button class="pri" id="nm-go">Dissect</button></div>
+ <div id="nm-out"></div>
+</div>
+<h3>Rules for names</h3>
+<ul>
+<li>Each label is 1 to 63 characters. The whole name is at most 253 characters as text (255 bytes on the wire).</li>
+<li>For hostnames, labels use letters, digits and hyphens, and can't start or end with a hyphen.</li>
+<li>Names are case-insensitive. <code>WWW.AcmeShop.COM</code> and <code>www.acmeshop.com</code> are the same name. (Chapter 13 shows how resolvers use this for security.)</li>
+<li>Non-English names like <code>münchen.de</code> are stored as <b>Punycode</b>: <code>xn--mnchen-3ya.de</code>. The browser converts for display.</li>
+</ul>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D3 ============ -->
+<section class="ch" id="d3" data-title="Every component involved">
+<h2>3. Every component involved</h2>
+<div class="topics">Sources: Cloudflare "DNS server types", "What is recursive DNS?", "What is a domain name registrar?"</div>
+<p class="lead">A lookup passes through two groups. On your side: the browser, the operating system's <b>stub resolver</b>, and a <b>recursive resolver</b>. On the internet's side: <b>root</b> servers, <b>TLD</b> servers and the domain's <b>authoritative</b> servers. Behind the scenes, registries and registrars decide what the TLD servers say.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="box" data-s="1"><span class="bt">your device</span><div class="col">
+   <div class="n client" data-s="1">Browser<small>own DNS cache</small></div>
+   <div class="ar" data-s="2">↓ getaddrinfo()</div>
+   <div class="n client" data-s="2">OS stub resolver<small>hosts file + OS cache</small></div>
+  </div></div>
+  <div class="ar" data-s="3">↓ UDP port 53, "please find it for me" (RD=1)</div>
+  <div class="n edge" data-s="3">Recursive resolver<small>ISP, 1.1.1.1, 8.8.8.8, or company DNS</small></div>
+  <div class="row" data-s="4" style="margin-top:6px"><div class="col"><div class="ar">↓ ask</div><div class="n edge">Root servers<small>13 names, 2,045 sites</small></div></div>
+   <div class="col" data-s="5"><div class="ar">↓ ask</div><div class="n edge">TLD servers<small>.com, .org, .pk…</small></div></div>
+   <div class="col" data-s="6"><div class="ar">↓ ask</div><div class="n svc">Authoritative servers<small>hold acmeshop.com's records</small></div></div></div>
+  <div class="row" data-s="7" style="margin-top:12px"><div class="n plat">ICANN / IANA<small>manages the root zone</small></div><div class="n plat">Registry<small>runs a TLD, e.g. Verisign for .com</small></div><div class="n plat">Registrar<small>sells domains, e.g. Namecheap</small></div><div class="n plat">Registrant<small>you, the domain holder</small></div></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The <b>browser</b> keeps its own small cache of recent answers. Chrome shows it at <code>chrome://net-internals/#dns</code>.</p>
+  <p class="cap" data-s="2">On a miss, the browser asks the operating system. The OS part that does this is the <b>stub resolver</b>: a simple client that can't walk the tree itself. It checks the <b>hosts file</b> (<code>/etc/hosts</code>) and its own cache first. Linux often uses systemd-resolved, macOS mDNSResponder, and Windows the DNS Client service.</p>
+  <p class="cap" data-s="3">The stub sends the question to a <b>recursive resolver</b> (also called a recursor). You got its address from your router or network through DHCP, or you set it yourself. It does all the hard work and keeps a big shared cache, so one user's lookup speeds up the next user's.</p>
+  <p class="cap" data-s="4">The <b>root servers</b> know only one thing: which servers run each TLD. Every resolver ships with their addresses built in, in a file called <b>root hints</b>.</p>
+  <p class="cap" data-s="5">The <b>TLD servers</b> know which nameservers are responsible for each domain under their TLD. The <code>.com</code> servers hold pointers for every <code>.com</code> domain.</p>
+  <p class="cap" data-s="6">The <b>authoritative nameservers</b> hold the actual records for a domain. Their answer is final. It comes with the <b>AA</b> (authoritative answer) flag set. These are often run by a DNS provider such as Cloudflare, Route 53 or your registrar.</p>
+  <p class="cap" data-s="7">The people and organisations who decide what the servers say. <b>IANA</b> (part of ICANN) manages the root zone. A <b>registry</b> runs one TLD and its servers. A <b>registrar</b> is the shop where you rent a domain. It passes your chosen nameservers to the registry. The <b>registrant</b> is you.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<p>Two more parts are common. Your <b>home router</b> often acts as a small DNS forwarder: your laptop asks the router, and the router passes the question to the ISP's resolver. Big networks also use <b>forwarders</b> and internal DNS servers that answer for private names like <code>db.internal</code>.</p>
+<table>
+<tr><th>Component</th><th>Does the searching?</th><th>Holds real data for a zone?</th><th>Caches?</th></tr>
+<tr><td>Browser / OS stub</td><td>no, asks a resolver</td><td>no</td><td>yes, small</td></tr>
+<tr><td>Recursive resolver</td><td>yes</td><td>no</td><td>yes, large and shared</td></tr>
+<tr><td>Root / TLD server</td><td>no</td><td>yes: root zone / TLD zone (mostly delegations)</td><td>no</td></tr>
+<tr><td>Authoritative server</td><td>no</td><td>yes: the domain's records</td><td>no</td></tr>
+</table>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D4 ============ -->
+<section class="ch" id="d4" data-title="The full lookup, end to end">
+<h2>4. The full lookup, end to end</h2>
+<div class="topics">Sources: Cloudflare "The 8 steps in a DNS lookup", RFC 1034 §5.3.3</div>
+<p class="lead">With nothing cached, the resolver walks the tree from the top. The root sends it to <code>.com</code>. <code>.com</code> sends it to the domain's nameservers. Those give the answer. Each "go ask them" reply is called a <b>referral</b>.</p>
+<p>Here are the packets for a cold lookup of <code>www.acmeshop.com</code>. The root and <code>.com</code> server addresses are real. The acmeshop addresses come from the ranges set aside for documentation. Use the options to see how caches remove steps.</p>
+<div class="lab" id="w-sim">
+ <div class="t">Lab: follow one lookup, packet by packet</div>
+ <div class="bar"><label><input type="checkbox" id="sim-bc"> Browser has it cached</label><label><input type="checkbox" id="sim-rc"> Resolver has the answer cached</label><label><input type="checkbox" id="sim-tc" checked> Resolver already knows the .com servers (normal)</label><button id="sim-reset">Restart</button></div>
+ <div class="row" id="sim-comp" style="margin:10px 0"></div>
+ <div class="bar"><button id="sim-prev">◀ Back</button><button class="pri" id="sim-next">Next step ▶</button><span id="sim-pos" class="hint"></span><span class="pill" id="sim-time"></span></div>
+ <div id="sim-title" style="font-weight:600;margin-top:6px"></div>
+ <p id="sim-text"></p>
+ <div class="pkt" id="sim-pkt"></div>
+</div>
+<p>A few things this shows.</p>
+<ul>
+<li>The resolver sends the <b>full name</b> to every server, even the root. The root only reads the last label, but sending the full name is how DNS was designed. (Modern resolvers can send less, see <i>QNAME minimisation</i> in chapter 13.)</li>
+<li>The root and TLD servers don't search for you. They answer with an <b>AUTHORITY</b> section (NS records: "these servers are responsible") and an <b>ADDITIONAL</b> section with those servers' IPs, called <b>glue</b> (chapter 5).</li>
+<li>The <code>.com</code> delegation has a TTL of 172,800 seconds (2 days). So in practice the resolver almost never asks the root. It already knows the <code>.com</code> servers.</li>
+<li>Only the last answer has the <b>AA</b> flag. That tells the resolver it came from the source, not from someone's cache.</li>
+</ul>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D5 ============ -->
+<section class="ch" id="d5" data-title="Recursive vs iterative, referrals, glue">
+<h2>5. Recursive vs iterative queries, referrals and glue</h2>
+<div class="topics">Sources: Cloudflare "What is recursive DNS?", "What is DNS?" (3 types of queries), RFC 1034 §4.2.1</div>
+<p class="lead">There are two ways to ask a DNS server. A <b>recursive</b> query says "find the final answer for me". An <b>iterative</b> query says "give me the best answer you have, even if that is just a pointer". Your device asks recursively. The resolver asks iteratively.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">Stub resolver</div>
+  <div class="ar" data-s="1">↓ recursive query (RD=1): "don't come back without the answer"</div>
+  <div class="n edge" data-s="1">Recursive resolver</div>
+  <div class="row" data-s="2"><div class="ar">→ iterative: "who knows?"</div><div class="n edge">Root</div><div class="ar">← referral to .com</div></div>
+  <div class="row" data-s="3"><div class="ar">→ iterative</div><div class="n edge">.com TLD</div><div class="ar">← referral to ns1.acmeshop.com</div></div>
+  <div class="row" data-s="4"><div class="ar">→ iterative</div><div class="n svc">Authoritative</div><div class="ar">← answer (AA=1)</div></div>
+  <div class="ar" data-s="5">↑ one final answer back to the stub</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The stub sets the <b>RD</b> (recursion desired) flag. It hands off all the work. This makes stub resolvers tiny and simple.</p>
+  <p class="cap" data-s="2">The resolver asks the root. The root doesn't do recursion for anyone, so it answers with a referral.</p>
+  <p class="cap" data-s="3">The resolver follows the referral itself and asks <code>.com</code>. Another referral.</p>
+  <p class="cap" data-s="4">It follows that and gets the final answer.</p>
+  <p class="cap" data-s="5">The resolver returns one clean answer with the <b>RA</b> (recursion available) flag set. The third kind of query Cloudflare lists is <b>non-recursive</b>: a query the server can answer at once, from its own zone or its cache, with no referral needed.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<p>Why split it this way? Root and TLD servers get enormous traffic. If they chased answers for everyone, they would need to hold state for billions of lookups and would be easy to overload. By only handing out referrals they stay stateless and fast. The work and the caching are pushed to resolvers, which are close to users and share a cache among many of them.</p>
+
+<h3>Glue records: the chicken-and-egg problem</h3>
+<p>Say <code>.com</code> tells you "acmeshop.com's nameserver is <code>ns1.acmeshop.com</code>". To contact it you need its IP. To get its IP you must ask… the nameserver for acmeshop.com. That is the one you are trying to reach. The loop is broken by <b>glue</b>: the parent zone (<code>.com</code>) also stores the nameserver's IP, and returns it in the ADDITIONAL section of the referral.</p>
+<div class="lab" id="w-glue">
+ <div class="t">Lab: why glue exists</div>
+ <div class="bar"><label>Nameserver name <select id="gl-ns"><option value="in">ns1.acmeshop.com (inside the zone)</option><option value="out">ns1.dnsprovider.net (outside the zone)</option></select></label><label><input type="checkbox" id="gl-on" checked> .com has glue</label><button class="pri" id="gl-go">Resolve www.acmeshop.com</button></div>
+ <div class="log" id="gl-log" style="height:170px"></div>
+</div>
+<p>Glue is only needed when the nameserver's name is inside the zone it serves ("in-bailiwick"). If your nameservers are <code>ns1.dnsprovider.net</code>, the resolver just looks that name up separately. That costs an extra lookup, but no loop. You set glue at your registrar, usually on a page called "child nameservers" or "host records".</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D6 ============ -->
+<section class="ch" id="d6" data-title="Caching, TTL and 'propagation'">
+<h2>6. Caching, TTL and "propagation"</h2>
+<div class="topics">Sources: Cloudflare "What is DNS?" (DNS caching), RFC 2308 (negative caching)</div>
+<p class="lead">Every answer carries a TTL, a number of seconds. Any cache that stores the answer counts it down and throws the answer away at zero. The zone owner sets the TTL. So the owner decides the trade-off between speed and how fast changes spread.</p>
+<h3>Where answers are cached</h3>
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">Browser cache<small>seconds to a minute or so</small></div>
+  <div class="n client" data-s="2">OS cache<small>systemd-resolved, mDNSResponder, Windows DNS Client</small></div>
+  <div class="n client" data-s="3">Home router cache<small>many routers keep a small cache</small></div>
+  <div class="n edge" data-s="4">Recursive resolver cache<small>shared by thousands or millions of users</small></div>
+  <div class="n data" data-s="5">Cached referrals too<small>.com servers (2 days), acmeshop.com NS (hours)</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">Browsers keep a short cache to skip even the OS call. Chrome shows it and has a "Clear host cache" button at <code>chrome://net-internals/#dns</code>.</p>
+  <p class="cap" data-s="2">The OS caches for all apps on the machine. Flush it with <code>ipconfig /flushdns</code> on Windows, <code>resolvectl flush-caches</code> on Linux with systemd-resolved, or <code>sudo killall -HUP mDNSResponder</code> on macOS.</p>
+  <p class="cap" data-s="3">Your router may cache too. Restarting it clears that.</p>
+  <p class="cap" data-s="4">The resolver's cache is the one that matters most. A popular name is almost always already there because someone else asked for it recently.</p>
+  <p class="cap" data-s="5">The resolver also caches the referrals, not just final answers. That is why most lookups skip the root and TLD entirely and go straight to the domain's nameservers.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<p><b>Negative caching</b>: "this name does not exist" (NXDOMAIN) is cached too. The zone's SOA record says for how long (the last SOA field, chapter 9). If you look up a name before you create it, resolvers may keep saying "no such name" for that time.</p>
+
+<h3>"DNS propagation" is really cache expiry</h3>
+<p>Nothing is pushed out when you change a record. The new value is on your authoritative servers at once. Resolvers around the world still hold the old value until their cached copy's TTL runs out. Each one cached it at a different moment, so they switch at different moments. That spread-out switch is what people call propagation.</p>
+<div class="lab" id="w-prop">
+ <div class="t">Lab: change an IP and watch resolvers catch up</div>
+ <p class="hint">Resolvers in five cities each cached the old record at a random moment within the last TTL. At time 0 you change the IP. Drag time forward.</p>
+ <div class="bar"><label>TTL <select id="pp-ttl"><option value="3600">3600 s (1 hour)</option><option value="300">300 s (5 min)</option><option value="86400">86400 s (1 day)</option></select></label><button id="pp-new">New random cache times</button></div>
+ <div class="bar"><label>Time since change: <input type="range" id="pp-t" min="0" max="100" value="0" style="width:320px"> <b id="pp-tv"></b></label></div>
+ <div id="pp-view"></div>
+</div>
+<div class="note good">Planning a move? Lower the TTL (say to 300) at least one old-TTL period before the change. Then make the change: everyone switches within 5 minutes. Raise the TTL again afterwards. Some resolvers ignore very low TTLs and use a minimum of their own, so don't count on seconds.</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D7 ============ -->
+<section class="ch" id="d7" data-title="Root servers">
+<h2>7. Root servers</h2>
+<div class="topics">Sources: Cloudflare "DNS root server", root-servers.org (checked 2026-09-30), IANA root zone management</div>
+<p class="lead">Root servers answer for the root zone, the top of the tree. The root zone is small: it lists every TLD (about 1,500) and the nameservers for each. There are 13 root server <b>identities</b>, named <code>a.root-servers.net</code> to <code>m.root-servers.net</code>, but far more physical machines.</p>
+<p>According to root-servers.org, as of 30 September 2026 the root server system has <b>2,045 operational instances</b> run by <b>12 independent operators</b>. (Cloudflare's page says "over 600", which is older.) Verisign runs two letters, A and J. Each letter is one IP address shared by many machines through <b>anycast</b>.</p>
+<table>
+<tr><th>Letter</th><th>Operator</th><th>IPv4</th></tr>
+<tr><td>A</td><td>Verisign</td><td class="mono">198.41.0.4</td></tr>
+<tr><td>B</td><td>USC-ISI</td><td class="mono">170.247.170.2</td></tr>
+<tr><td>C</td><td>Cogent</td><td class="mono">192.33.4.12</td></tr>
+<tr><td>D</td><td>University of Maryland</td><td class="mono">199.7.91.13</td></tr>
+<tr><td>E</td><td>NASA Ames</td><td class="mono">192.203.230.10</td></tr>
+<tr><td>F</td><td>Internet Systems Consortium (Cloudflare adds instances under contract)</td><td class="mono">192.5.5.241</td></tr>
+<tr><td>G</td><td>US DoD (DISA)</td><td class="mono">192.112.36.4</td></tr>
+<tr><td>H</td><td>US Army Research Lab</td><td class="mono">198.97.190.53</td></tr>
+<tr><td>I</td><td>Netnod</td><td class="mono">192.36.148.17</td></tr>
+<tr><td>J</td><td>Verisign</td><td class="mono">192.58.128.30</td></tr>
+<tr><td>K</td><td>RIPE NCC</td><td class="mono">193.0.14.129</td></tr>
+<tr><td>L</td><td>ICANN</td><td class="mono">199.7.83.42</td></tr>
+<tr><td>M</td><td>WIDE Project</td><td class="mono">202.12.27.33</td></tr>
+</table>
+
+<h3>Why only 13?</h3>
+<p>Original DNS over UDP limited a message to 512 bytes. A resolver starting up asks a root server "who are the root servers?" (a <b>priming query</b>). The whole reply, with names and addresses, had to fit in 512 bytes. Thirteen was the most that fit. The limit is on addresses, not machines, and anycast removed the machine limit.</p>
+
+<h3>Anycast: one address, many places</h3>
+<p>Normally one IP address means one machine. With anycast, many sites announce the same IP address to the internet's routing system (BGP). Routers send each packet to the "nearest" site in network terms. If a site fails, it stops announcing, and traffic flows to the next nearest one within moments. This gives low latency and spreads attacks across hundreds of sites.</p>
+<div class="lab" id="w-any">
+ <div class="t">Lab: which F-root instance answers you?</div>
+ <p class="hint">Every site below announces 192.5.5.241. Pick where you are. Take sites down and see where your packets go instead. (Sites and times are examples.)</p>
+ <div class="bar"><label>You are in <select id="an-loc"><option value="lhe">Lahore</option><option value="fra">Frankfurt</option><option value="nyc">New York</option><option value="syd">Sydney</option></select></label><button class="pri" id="an-q">Send query to 192.5.5.241</button></div>
+ <div class="row" id="an-sites" style="margin:10px 0"></div>
+ <div class="log" id="an-log" style="height:110px"></div>
+</div>
+
+<h3>How resolvers find the root, and who controls it</h3>
+<p>No one can refer you to the root, because it is the top. So every resolver ships with the root servers' addresses in a <b>root hints</b> file (<code>named.root</code>), published by IANA. On start-up it primes from one of them and gets the current list.</p>
+<p>The <b>content</b> of the root zone is managed by IANA (part of ICANN). Changes, such as a TLD changing its nameservers, are checked by IANA and then published by Verisign as the Root Zone Maintainer. All 13 letters serve the same zone file. The root zone is also signed with DNSSEC. The key that signs it (the root KSK) is managed in public "key signing ceremonies" (chapter 13).</p>
+<p>The root is rarely the bottleneck. Because resolvers cache TLD referrals for 2 days, only a small share of lookups ever reach it. Much of the traffic roots do see is junk: queries for TLDs that don't exist, like <code>.local</code> or <code>.lan</code>, leaking from misconfigured networks.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D8 ============ -->
+<section class="ch" id="d8" data-title="TLDs, registries and registrars">
+<h2>8. TLD servers, registries and registrars</h2>
+<div class="topics">Sources: Cloudflare "DNS server types" (TLD nameserver), "What is a domain name registrar?", "What is a top-level domain?"</div>
+<p class="lead">A TLD server holds the delegations for every domain under one TLD: for each domain, its NS records and any glue. A <b>registry</b> runs the TLD. A <b>registrar</b> sells domains and sends your settings to the registry.</p>
+<table>
+<tr><th>Kind</th><th>Examples</th><th>Notes</th></tr>
+<tr><td>Generic (gTLD)</td><td>.com .net .org .info .app .dev</td><td>not tied to a country. Hundreds were added after 2012.</td></tr>
+<tr><td>Country code (ccTLD)</td><td>.uk .pk .de .jp .io</td><td>two letters from ISO 3166. Each country sets its own rules.</td></tr>
+<tr><td>Sponsored</td><td>.gov .edu .mil</td><td>limited to certain groups</td></tr>
+<tr><td>Infrastructure</td><td>.arpa</td><td>used for reverse DNS (<code>in-addr.arpa</code>) and other technical needs</td></tr>
+</table>
+<p>The <code>.com</code> zone is run by Verisign on 13 servers, <code>a.gtld-servers.net</code> to <code>m.gtld-servers.net</code>, also using anycast. It holds delegations for well over 100 million domains. Note what it does <b>not</b> hold: your A, MX or TXT records. It only knows who your nameservers are.</p>
+
+<h3>What happens when you buy a domain and point it to a DNS provider</h3>
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">You (registrant)<small>buy acmeshop.com</small></div>
+  <div class="ar" data-s="2">↓</div>
+  <div class="n svc" data-s="2">Registrar (e.g. Namecheap)</div>
+  <div class="ar" data-s="3">↓ EPP protocol: create domain, set NS</div>
+  <div class="n svc" data-s="3">Registry (Verisign for .com)<small>registry database</small></div>
+  <div class="ar" data-s="4">↓ publishes</div>
+  <div class="n edge" data-s="4">.com zone on gtld-servers<small>acmeshop.com NS ns1.dnsprovider.net</small></div>
+  <div class="n svc" data-s="5">DNS provider's authoritative servers<small>you add A, MX, TXT… here</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">You pick a name and pay. You rent the domain for 1 to 10 years. You never own it outright.</p>
+  <p class="cap" data-s="2">The registrar is accredited by ICANN (for gTLDs) to sell domains. It stores your contact details (often hidden by "domain privacy").</p>
+  <p class="cap" data-s="3">It talks to the registry over <b>EPP</b> (Extensible Provisioning Protocol): create the domain, set the nameservers, set glue if needed, add DS records for DNSSEC.</p>
+  <p class="cap" data-s="4">The registry puts your NS records into the <code>.com</code> zone, which its servers publish, usually within minutes. From now on, <code>.com</code> refers everyone to your nameservers.</p>
+  <p class="cap" data-s="5">Your actual records live at your DNS provider, who may or may not be your registrar. Changing an A record never involves the registry. Changing nameservers does, and the old NS records stay cached for up to the TLD's TTL (2 days for .com).</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D9 ============ -->
+<section class="ch" id="d9" data-title="Authoritative servers and zones">
+<h2>9. Authoritative servers and zone files</h2>
+<div class="topics">Sources: Cloudflare "What is a DNS SOA record?", "Primary vs secondary DNS", "What is a DNS zone?", RFC 1035 §5, RFC 1995/1996</div>
+<p class="lead">An authoritative nameserver holds a zone's records and answers for them with final authority. The records live in a <b>zone file</b>, a plain text format from 1987 that is still the standard way to write DNS data.</p>
+<pre>$ORIGIN acmeshop.com.
+$TTL 3600
+@     IN SOA  ns1.acmeshop.com. hostmaster.acmeshop.com. (
+              2026093001 ; SERIAL   version of the zone
+              7200       ; REFRESH  secondaries check every 2 h
+              3600       ; RETRY    if the check fails, retry after 1 h
+              1209600    ; EXPIRE   stop answering after 14 days without contact
+              300 )      ; MINIMUM  how long to cache "no such name"
+@     IN NS   ns1.acmeshop.com.
+@     IN NS   ns2.acmeshop.com.
+ns1   IN A    198.51.100.53
+ns2   IN A    203.0.113.53
+@     IN A    203.0.113.10
+www   IN CNAME acmeshop.com.
+@     IN MX   10 mail1.acmeshop.com.</pre>
+<p>Read each line as <i>name · TTL · class · type · data</i>. <code>@</code> means the zone's own name (the "apex"). Names without a trailing dot get the origin added, so <code>ns1</code> means <code>ns1.acmeshop.com.</code>. A classic mistake is writing <code>mail.acmeshop.com</code> without the final dot, which becomes <code>mail.acmeshop.com.acmeshop.com.</code>. The class is almost always <code>IN</code> (internet).</p>
+
+<h3>Primary and secondary servers</h3>
+<p>A zone should have at least two nameservers on different networks, so one outage doesn't take the domain offline. Classic setups have one <b>primary</b> where edits happen, and <b>secondaries</b> that keep copies.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n svc" data-s="1">Primary (ns1)<small>you edit here, serial → 2026093002</small></div>
+  <div class="ar" data-s="2">↓ NOTIFY (UDP): "zone changed"</div>
+  <div class="n svc" data-s="2">Secondary (ns2)</div>
+  <div class="ar" data-s="3">↑ SOA query: "what is your serial?"</div>
+  <div class="ar" data-s="4">↓ IXFR / AXFR over TCP: the changes, or the whole zone</div>
+  <div class="n data" data-s="5">Both answer the same data. Resolvers pick either.</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">An edit on the primary must increase the <b>serial</b>. A common format is the date plus a counter: <code>YYYYMMDDnn</code>.</p>
+  <p class="cap" data-s="2">The primary sends a <b>NOTIFY</b> message to its secondaries (RFC 1996) so they don't wait for the refresh timer.</p>
+  <p class="cap" data-s="3">The secondary asks for the SOA and compares serials. Higher serial means there is new data.</p>
+  <p class="cap" data-s="4">It pulls a <b>zone transfer</b> over TCP: <b>IXFR</b> sends only the changes, <b>AXFR</b> sends the whole zone. Transfers should be allowed only to your own secondaries. An open AXFR gives anyone a full list of your hostnames.</p>
+  <p class="cap" data-s="5">If NOTIFY is lost, the REFRESH timer still makes the secondary check. If the primary is gone for longer than EXPIRE, the secondary stops answering rather than serve data that may be very old. Large providers today often skip this model and replicate with their own internal systems to anycast servers worldwide.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<div class="lab" id="w-xfr">
+ <div class="t">Lab: primary and secondary</div>
+ <div class="bar"><button class="pri" id="xf-edit">Edit record on primary</button><label><input type="checkbox" id="xf-bump" checked> Increase the serial</label><label><input type="checkbox" id="xf-notify" checked> NOTIFY reaches ns2</label><button id="xf-timer">REFRESH timer fires on ns2</button><button id="xf-reset">Reset</button></div>
+ <div class="grid2"><div class="kv" id="xf-state"></div><div class="log" id="xf-log" style="height:150px"></div></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D10 ============ -->
+<section class="ch" id="d10" data-title="Record types">
+<h2>10. Record types</h2>
+<div class="topics">Sources: Cloudflare "DNS records" and the per-record pages (A, AAAA, CNAME, MX, TXT, NS, SOA, PTR, SRV, DNSKEY/DS), RFC 9460 (HTTPS/SVCB), RFC 8659 (CAA)</div>
+<p class="lead">Each record has a name, a type, a TTL and data. The type says what the data means. A lookup always asks for one name <i>and</i> one type: "A records for www.acmeshop.com".</p>
+<div class="lab" id="w-rr">
+ <div class="t">Lab: record type explorer</div>
+ <p class="hint">Click a type.</p>
+ <div class="bar" id="rr-btns"></div>
+ <div id="rr-out"></div>
+</div>
+<h3>CNAME rules</h3>
+<p>A CNAME says "this name is an alias. Go look up that other name instead." The resolver then restarts the lookup for the target, which can mean more round trips. Two rules follow from how it works:</p>
+<ul>
+<li>A name with a CNAME can have <b>no other records</b>. If <code>www</code> is a CNAME, it can't also have an MX or TXT, because the CNAME means "everything about this name is over there".</li>
+<li>So the <b>apex</b> (<code>acmeshop.com</code> itself) can't be a CNAME, because the apex must have SOA and NS records. Providers get around this with <b>CNAME flattening</b> (Cloudflare) or <b>ALIAS / ANAME</b> records: the authoritative server follows the CNAME itself and returns plain A/AAAA records.</li>
+</ul>
+<h3>Try it: resolve against a real zone</h3>
+<div class="lab" id="w-res">
+ <div class="t">Lab: query the acmeshop.com zone</div>
+ <p class="hint">The zone is shown on the left. Ask for any name and type. Watch how CNAMEs are followed, and the difference between NXDOMAIN and NODATA.</p>
+ <div class="bar"><label>Name <input type="text" id="rs-name" value="www.acmeshop.com" size="26"></label><label>Type <select id="rs-type"></select></label><button class="pri" id="rs-go">dig</button></div>
+ <div class="bar" id="rs-quick"></div>
+ <div class="grid2"><pre id="rs-zone" style="font-size:12px;max-height:340px"></pre><div class="pkt" id="rs-out"></div></div>
+</div>
+<p><b>NXDOMAIN</b> means the name does not exist at all. <b>NODATA</b> (status NOERROR with an empty answer) means the name exists but has no record of the type you asked for. Both come with the zone's SOA in the AUTHORITY section, so resolvers know how long to cache the negative answer.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D11 ============ -->
+<section class="ch" id="d11" data-title="The DNS message on the wire">
+<h2>11. The DNS message on the wire</h2>
+<div class="topics">Sources: RFC 1035 §4, RFC 6891 (EDNS0), RFC 7766 (DNS over TCP), DNS Flag Day 2020</div>
+<p class="lead">A DNS query is one small binary message, usually sent in a single UDP packet to port 53. The reply uses the same format with more sections filled in. There is no connection and no handshake, which is why DNS is fast.</p>
+<p>Every message has five parts: a 12-byte <b>header</b>, then the <b>question</b>, <b>answer</b>, <b>authority</b> and <b>additional</b> sections. The header holds a 16-bit <b>ID</b> that ties the reply to the query, flags, and a count for each section.</p>
+<table>
+<tr><th>Flag</th><th>Meaning</th></tr>
+<tr><td>QR</td><td>0 = query, 1 = response</td></tr>
+<tr><td>AA</td><td>authoritative answer: from the zone's own server, not a cache</td></tr>
+<tr><td>TC</td><td>truncated: the answer didn't fit, retry over TCP</td></tr>
+<tr><td>RD</td><td>recursion desired: "please find it for me"</td></tr>
+<tr><td>RA</td><td>recursion available: "I am a resolver that does that"</td></tr>
+<tr><td>AD / CD</td><td>DNSSEC: authentic data (validated) / checking disabled</td></tr>
+<tr><td>RCODE</td><td>0 NOERROR, 1 FORMERR, 2 SERVFAIL, 3 NXDOMAIN, 4 NOTIMP, 5 REFUSED</td></tr>
+</table>
+<div class="lab" id="w-wire">
+ <div class="t">Lab: build a real DNS query, byte by byte</div>
+ <p class="hint">These are the exact bytes a stub would send. You could paste them into a UDP socket to port 53 and get an answer.</p>
+ <div class="bar"><label>Name <input type="text" id="wi-name" value="www.acmeshop.com" size="24"></label><label>Type <select id="wi-type"></select></label><label><input type="checkbox" id="wi-rd" checked> RD</label><label><input type="checkbox" id="wi-edns" checked> EDNS(0) OPT record</label><label><input type="checkbox" id="wi-do"> DO bit (want DNSSEC)</label></div>
+ <div class="pkt hx" id="wi-hex"></div>
+ <div id="wi-legend" style="font-size:14px"></div>
+</div>
+<h3>Name compression</h3>
+<p>A reply repeats names a lot (<code>acmeshop.com</code> appears in the question and in every record). To save space, a name can end with a 2-byte <b>pointer</b> (first two bits set, <code>0xC0</code>) to an earlier position in the message. <code>C0 0C</code> means "the name at byte 12", which is the question name right after the header.</p>
+<h3>Size limits, EDNS and TCP</h3>
+<ul>
+<li>Plain DNS over UDP is limited to <b>512 bytes</b>. This is also why there are 13 root names (chapter 7).</li>
+<li><b>EDNS(0)</b> adds a fake "OPT" record to the additional section. It lets the client say "I can take bigger replies" and carries the DO flag for DNSSEC. Since DNS Flag Day 2020, the common advice is 1,232 bytes, small enough to avoid IP fragmentation.</li>
+<li>If the answer still doesn't fit, the server sets <b>TC</b>. The client then repeats the query over <b>TCP</b> port 53. TCP is also used for zone transfers. Every DNS server must support it (RFC 7766).</li>
+</ul>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D12 ============ -->
+<section class="ch" id="d12" data-title="Reverse DNS">
+<h2>12. Reverse DNS</h2>
+<div class="topics">Sources: Cloudflare "What is reverse DNS?", "DNS PTR record"</div>
+<p class="lead">Reverse DNS goes the other way: from an IP address to a name. It uses PTR records stored under the special domain <code>in-addr.arpa</code> (IPv4) or <code>ip6.arpa</code> (IPv6).</p>
+<p>DNS names get more specific from right to left. IP addresses get more specific from left to right. So to fit an IP into the tree, the address is <b>written backwards</b>: <code>203.0.113.10</code> becomes <code>10.113.0.203.in-addr.arpa</code>. Now the network part (203.0.113) sits higher in the tree. That lets an IP block be delegated just like a domain: the owner of <code>203.0.113.0/24</code> gets <code>113.0.203.in-addr.arpa</code>.</p>
+<div class="lab" id="w-ptr">
+ <div class="t">Lab: IP to PTR name</div>
+ <div class="bar"><input type="text" id="pt-ip" value="203.0.113.10" size="40"><button class="pri" id="pt-go">Convert</button><button id="pt-v6">Try an IPv6</button></div>
+ <div class="pkt" id="pt-out"></div>
+</div>
+<p>Who controls the PTR? The owner of the <b>IP block</b>, not the owner of the domain. For a cloud server, you set it in your cloud provider's console. Main uses:</p>
+<ul>
+<li><b>Email</b>: many mail servers reject or down-rank mail from an IP without a PTR, or whose PTR name does not point back to the same IP ("forward-confirmed reverse DNS").</li>
+<li><b>Logs and tools</b>: <code>traceroute</code> and server logs show readable names instead of raw IPs.</li>
+</ul>
+<p>A PTR proves nothing by itself. Anyone who controls an IP block can set any name. That is why mail servers check that the name's A record points back.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D13 ============ -->
+<section class="ch" id="d13" data-title="Security and privacy">
+<h2>13. Security and privacy</h2>
+<div class="topics">Sources: Cloudflare "DNS cache poisoning", "How does DNSSEC work?", "DNS over TLS vs. DNS over HTTPS", "DNS security", "What is recursive DNS?"</div>
+<p class="lead">DNS was built in the 1980s on trust. Queries go in plain text over UDP, and a resolver accepts any reply that looks right. That leaves three problems: answers can be forged (poisoning), nobody could check they're genuine (fixed by DNSSEC), and anyone on the path can read your lookups (fixed by DoT and DoH).</p>
+
+<h3>Cache poisoning</h3>
+<p>UDP has no handshake. When a resolver sends a query, it accepts the first reply with the right source IP and port, the right 16-bit ID, and the same question. An attacker who sends a forged reply that matches, and arrives before the real one, gets their fake IP stored in the cache. Every user of that resolver is then sent to the attacker until the TTL ends.</p>
+<p>In 2008 Dan Kaminsky showed how to make this practical. Instead of racing for <code>www.bank.com</code> (which is cached, so you get one try per TTL), ask for random names like <code>x8a1.bank.com</code>. Each one is a fresh race. The forged replies include a fake NS record for all of <code>bank.com</code>. Losing costs nothing. Just try the next random name.</p>
+<div class="lab" id="w-poison">
+ <div class="t">Lab: how hard is it to win the race?</div>
+ <p class="hint">The attacker can send some forged replies in the short window before the real answer arrives. Turn on each defence and see the odds change.</p>
+ <div class="bar"><label>Forged replies per race: <input type="range" id="po-n" min="1" max="4" step="1" value="2"> <b id="po-nv"></b></label></div>
+ <div class="bar"><label><input type="checkbox" id="po-port"> Random source port (~16 bits, added after 2008)</label><label><input type="checkbox" id="po-0x20"> 0x20 case randomisation (wWw.AcMesHoP.cOm)</label><label><input type="checkbox" id="po-sec"> DNSSEC validation</label></div>
+ <div class="bar"><button class="pri" id="po-race">Run 1,000 races</button></div>
+ <div id="po-out"></div>
+</div>
+
+<h3>DNSSEC: signed answers and a chain of trust</h3>
+<p>DNSSEC adds digital signatures to DNS data. It does not encrypt anything. It proves the answer came from the zone's owner and was not changed. The resolver checks each zone's key using its parent, all the way up to the root. The root's key is built into the resolver as the <b>trust anchor</b>.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n edge" data-s="1">Root zone<small>DNSKEY (root KSK) = trust anchor in every validating resolver</small></div>
+  <div class="ar" data-s="2">↓ root signs: DS for com = hash of com's KSK</div>
+  <div class="n edge" data-s="2">.com zone<small>DNSKEY (com's KSK + ZSK)</small></div>
+  <div class="ar" data-s="3">↓ .com signs: DS for acmeshop.com</div>
+  <div class="n svc" data-s="3">acmeshop.com zone<small>DNSKEY: KSK signs the ZSK</small></div>
+  <div class="ar" data-s="4">↓ ZSK signs each record set → RRSIG</div>
+  <div class="n data" data-s="4">www A 203.0.113.10 + RRSIG</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The resolver trusts one key without proof: the root's key-signing key. It is managed in public key ceremonies, run by ICANN with trusted community representatives present.</p>
+  <p class="cap" data-s="2">The root zone publishes a <b>DS</b> (delegation signer) record for <code>.com</code>: a hash of <code>.com</code>'s key. It is signed by the root. Now <code>.com</code>'s key can be trusted.</p>
+  <p class="cap" data-s="3">Same step one level down. <code>.com</code> publishes a signed DS for acmeshop.com. You give this DS to your registrar, which sends it to the registry.</p>
+  <p class="cap" data-s="4">Each zone uses two keys. The <b>KSK</b> (key-signing key) signs only the zone's DNSKEY set. The <b>ZSK</b> (zone-signing key) signs everything else and makes an <b>RRSIG</b> for each record set. Splitting them lets you change the ZSK often without touching the parent's DS. For "no such name" answers, <b>NSEC/NSEC3</b> records prove, with a signature, that nothing exists there.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<div class="lab" id="w-dnssec">
+ <div class="t">Lab: validate the chain</div>
+ <div class="bar"><label>Attack <select id="ds-atk"><option value="none">none, real answer</option><option value="a">forged A record (attacker has no private key)</option><option value="key">attacker adds their own DNSKEY to acmeshop.com</option><option value="ds">.com serves a DS that doesn't match</option></select></label><button class="pri" id="ds-go">Validate</button></div>
+ <div id="ds-out" class="col" style="align-items:stretch"></div>
+</div>
+<p>If validation fails, a validating resolver returns <b>SERVFAIL</b>, not the bad data. A broken DNSSEC setup therefore takes a domain offline for everyone using validating resolvers (like 1.1.1.1 and 8.8.8.8). A common cause is changing DNS provider without removing the old DS first.</p>
+
+<h3>Privacy: DoT and DoH</h3>
+<p>Classic DNS is plain text. Your ISP, Wi-Fi owner or anyone on the path can see every name you look up, even if the website itself uses HTTPS. Two standards encrypt the path between your device and the resolver:</p>
+<table>
+<tr><th></th><th>DNS over TLS (DoT)</th><th>DNS over HTTPS (DoH)</th></tr>
+<tr><td>Port</td><td>853, only for DNS</td><td>443, same as all HTTPS</td></tr>
+<tr><td>Visible to the network?</td><td>content hidden, but anyone can see "this is DNS"</td><td>looks like any other HTTPS traffic</td></tr>
+<tr><td>Typical use</td><td>Android "Private DNS", OS-level</td><td>browsers (Firefox turned it on by default for US users in 2020, per Cloudflare)</td></tr>
+</table>
+<p>DoT and DoH protect the trip to the resolver. They don't stop the resolver from seeing your queries, and they don't prove the answer is genuine. DNSSEC does that part. Two other privacy features: <b>QNAME minimisation</b> (RFC 9156) makes the resolver send the root only <code>com</code> and <code>.com</code> only <code>acmeshop.com</code>, not the full name. <b>Oblivious DoH</b> adds a relay so the resolver sees queries but not who sent them.</p>
+
+<h3>Other attacks on DNS</h3>
+<ul>
+<li><b>Amplification DDoS</b>: an attacker sends small queries to open resolvers with the victim's IP as a fake source. The large replies (a 60-byte query can bring back several KB) flood the victim. That's why resolvers should only answer their own users, and why servers use rate limits.</li>
+<li><b>Domain hijacking</b>: someone takes over your registrar account and changes your nameservers. Use 2FA and a registry lock.</li>
+<li><b>DNS tunnelling</b>: smuggling data out of a network inside DNS queries, because DNS is rarely blocked.</li>
+<li><b>Dangling records</b>: a CNAME pointing to a cloud resource you deleted. Someone else creates that resource and now serves content on your subdomain ("subdomain takeover").</li>
+</ul>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============ D14 ============ -->
+<section class="ch" id="d14" data-title="DNS in practice: browsers, CDNs, dig">
+<h2>14. DNS in practice: browsers, CDNs, load balancing, and dig</h2>
+<div class="topics">Sources: Cloudflare "What is round-robin DNS?", "What is Anycast DNS?", "What is 1.1.1.1?", RFC 8305 (Happy Eyeballs v2), RFC 9460 (HTTPS records)</div>
+<p class="lead">In real systems, DNS does more than map names to fixed IPs. It picks servers based on where the user is, spreads load, and tells browsers how to connect before they open a single connection.</p>
+
+<h3>What the browser does around the lookup</h3>
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">You type acmeshop.com + Enter<small>or even while you type: DNS prefetch</small></div>
+  <div class="ar" data-s="2">↓ in parallel</div>
+  <div class="row" data-s="2"><div class="n edge">A query</div><div class="n edge">AAAA query</div><div class="n edge" data-s="3">HTTPS query</div></div>
+  <div class="ar" data-s="4">↓</div>
+  <div class="n svc" data-s="4">Happy Eyeballs: try IPv6, fall back to IPv4 fast</div>
+  <div class="ar" data-s="5">↓</div>
+  <div class="n svc" data-s="5">TCP/QUIC + TLS → HTTP request</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">Browsers start DNS early. They resolve names from the address bar as you type, and from links on a page. Sites can ask for it with <code>&lt;link rel="dns-prefetch" href="//cdn.example.com"&gt;</code>.</p>
+  <p class="cap" data-s="2">The browser asks for the IPv4 (A) and IPv6 (AAAA) records at the same time, not one after the other.</p>
+  <p class="cap" data-s="3">Modern browsers also ask for the <b>HTTPS</b> record (RFC 9460). It can say "this site supports HTTP/3", give IP hints, and carry keys for Encrypted Client Hello. The browser learns how to connect without a trial round trip.</p>
+  <p class="cap" data-s="4"><b>Happy Eyeballs</b> (RFC 8305): prefer IPv6, but if it doesn't connect within a short time (around 250 ms), race IPv4 too, and use whichever connects first. This way a broken IPv6 path never leaves the user waiting.</p>
+  <p class="cap" data-s="5">Only now does the real connection start. On a cold cache, the DNS time is added to the page's first byte.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<h3>DNS for load balancing and CDNs</h3>
+<ul>
+<li><b>Round-robin DNS</b>: return several A records (<code>api</code> has two IPs in the chapter 10 zone). Clients spread across them. It's simple, but DNS doesn't know if a server is down, and caches keep old lists.</li>
+<li><b>GeoDNS / latency-based DNS</b>: the authoritative server looks at where the query comes from and returns a nearby server's IP. The query comes from the <i>resolver</i>, not the user. So resolvers may pass a hint of the user's subnet, called <b>EDNS Client Subnet</b>. 1.1.1.1 does not send it, for privacy.</li>
+<li><b>Health-checked DNS</b> (e.g. Route 53 failover): stop returning an IP when its health check fails. Clients switch only after the TTL runs out, so use short TTLs.</li>
+<li><b>Anycast</b> (the method Cloudflare uses): return the same IP everywhere and let internet routing pick the nearest data center. DNS stays simple and failover is fast.</li>
+</ul>
+
+<h3>Reading <code>dig +trace</code></h3>
+<p><code>dig +trace</code> makes your machine act as the resolver. It walks the tree itself and prints each referral. Here is an annotated example:</p>
+<pre>$ dig +trace www.acmeshop.com
+.                    518400 IN NS a.root-servers.net.      <span style="color:var(--mute)">← start: ask local resolver for the root list</span>
+.                    518400 IN NS b.root-servers.net.      <span style="color:var(--mute)">   (…13 lines)</span>
+;; Received 239 bytes from 127.0.0.53#53 in 1 ms
+
+com.                 172800 IN NS a.gtld-servers.net.      <span style="color:var(--mute)">← root's referral: .com servers, 2-day TTL</span>
+com.                 86400  IN DS 19718 13 2 8ACBB0CD…     <span style="color:var(--mute)">← DNSSEC: hash of .com's key</span>
+;; Received 1170 bytes from 198.41.0.4#53(a.root-servers.net) in 14 ms
+
+acmeshop.com.        172800 IN NS ns1.acmeshop.com.        <span style="color:var(--mute)">← .com's referral to your nameservers</span>
+acmeshop.com.        172800 IN NS ns2.acmeshop.com.
+;; Received 196 bytes from 192.5.6.30#53(a.gtld-servers.net) in 22 ms
+
+www.acmeshop.com.    3600   IN CNAME acmeshop.com.         <span style="color:var(--mute)">← final, authoritative answer</span>
+acmeshop.com.        3600   IN A 203.0.113.10
+;; Received 88 bytes from 198.51.100.53#53(ns1.acmeshop.com) in 81 ms</pre>
+<p>Other useful commands: <code>dig acmeshop.com MX</code> (one type), <code>dig @1.1.1.1 acmeshop.com</code> (ask a specific resolver), <code>dig @ns1.acmeshop.com acmeshop.com</code> (ask the authoritative server, bypassing caches), <code>dig -x 203.0.113.10</code> (reverse), <code>dig +dnssec</code> (show signatures). On Windows, <code>nslookup</code> or <code>Resolve-DnsName</code>.</p>
+
+<h3>When DNS breaks</h3>
+<div class="lab" id="w-dbg">
+ <div class="t">Lab: what does this error mean?</div>
+ <div class="bar" id="dbg-btns"></div>
+ <div class="note" id="dbg-out">Pick a symptom.</div>
+</div>
+
+<h3>The whole flow, one last time</h3>
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">Browser cache</div>
+  <div class="n client" data-s="2">OS: hosts file → OS cache → stub resolver</div>
+  <div class="n client" data-s="3">Router (forwarder)</div>
+  <div class="n edge" data-s="4">Recursive resolver: cache</div>
+  <div class="n edge" data-s="5">Root (anycast) → referral to .com</div>
+  <div class="n edge" data-s="6">.com TLD → referral + glue</div>
+  <div class="n svc" data-s="7">Authoritative → answer (AA), signed if DNSSEC</div>
+  <div class="n edge" data-s="8">Resolver validates, caches every piece for its TTL</div>
+  <div class="n client" data-s="9">Answer back to OS and browser → both cache it → connect</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The browser checks its own cache.</p>
+  <p class="cap" data-s="2">The OS checks the hosts file and its cache, then the stub sends a recursive query.</p>
+  <p class="cap" data-s="3">A home router often forwards it.</p>
+  <p class="cap" data-s="4">The resolver answers from cache if it can. Most of the time it can.</p>
+  <p class="cap" data-s="5">If not, it asks a root server, reached by anycast, which refers it to the TLD.</p>
+  <p class="cap" data-s="6">The TLD server refers it to the domain's nameservers, with glue if needed.</p>
+  <p class="cap" data-s="7">The authoritative server returns the records, with signatures if DNSSEC is on.</p>
+  <p class="cap" data-s="8">The resolver checks the signatures if it validates, and caches the answer and every referral.</p>
+  <p class="cap" data-s="9">The answer returns down the chain. Every layer caches it for its TTL. The browser can now open a connection. On a cold path this took four network round trips. On a warm path it took zero or one.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+</main>
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const rnd=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function log(el,msg,cls=''){if(typeof el==='string')el=$(el);const d=document.createElement('div');d.className=cls;d.textContent=msg;el.appendChild(d);el.scrollTop=el.scrollHeight;}
+const stat=(v,label,color)=>`<span class="stat"><b${color?` style="color:var(--${color})"`:''}>${v}</b>${label}</span>`;
+
+/* ---------- nav + progress ---------- */
+const secs=$$('section.ch'),done=new Set(JSON.parse(localStorage.getItem('dns-done')||'[]'));
+secs.forEach((s,i)=>{const a=document.createElement('a');a.href='#'+s.id;a.dataset.id=s.id;a.innerHTML=`<span class="num">${i+1}</span><span>${s.dataset.title}</span>`;a.onclick=()=>$('#side').classList.remove('open');$('#nav').appendChild(a);
+ $('.done-btn',s).onclick=()=>{done.has(s.id)?done.delete(s.id):done.add(s.id);localStorage.setItem('dns-done',JSON.stringify([...done]));paintNav();};});
+function paintNav(){$$('#nav a').forEach(a=>a.classList.toggle('done',done.has(a.dataset.id)));secs.forEach(s=>$('.done-btn',s).textContent=done.has(s.id)?'✓ Read (click to undo)':'Mark chapter as read');$('#prog i').style.width=(done.size/secs.length*100)+'%';}
+paintNav();
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)$$('#nav a').forEach(a=>a.classList.toggle('cur',a.dataset.id===e.target.id));}),{rootMargin:'-35% 0px -60% 0px'});
+secs.forEach(s=>io.observe(s));
+
+/* ---------- build-up diagrams ---------- */
+$$('.build').forEach(b=>{
+ const items=$$('.stage [data-s]',b),caps=$$('.cap',b),ctl=$('.ctl',b);
+ const max=Math.max(...items.map(e=>+e.dataset.s),...caps.map(c=>+c.dataset.s));let cur=1;
+ ctl.innerHTML='<button data-a="first">⏮</button><button data-a="prev">◀ Back</button><button class="pri" data-a="next">Next ▶</button><button data-a="all">Show all</button><span></span>';
+ function show(fresh){items.forEach(e=>{const s=+e.dataset.s;e.classList.toggle('off',s>cur);e.classList.remove('fresh');if(fresh&&s===cur){void e.offsetWidth;e.classList.add('fresh');}});
+  caps.forEach(c=>c.classList.toggle('on',+c.dataset.s===cur));$('span',ctl).textContent=`Step ${cur} of ${max}`;$('[data-a=prev]',ctl).disabled=cur<=1;$('[data-a=next]',ctl).disabled=cur>=max;}
+ ctl.onclick=e=>{const a=e.target.dataset.a;if(!a)return;cur=a==='next'?cur+1:a==='prev'?cur-1:a==='first'?1:max;cur=Math.max(1,Math.min(max,cur));show(a==='next');};
+ show(false);
+});
+
+
+/* ---------- D2: name dissector ---------- */
+(()=>{const multi=['co.uk','ac.uk','org.uk','gov.uk','com.pk','edu.pk','com.au','co.jp','co.in','com.br','co.nz'];
+ $('#nm-go').onclick=()=>{const raw=$('#nm-in').value.trim().toLowerCase().replace(/\.$/,''),L=raw.split('.'),errs=[];
+  L.forEach(l=>{if(!l)errs.push('empty label (two dots in a row)');else if(l.length>63)errs.push(`label "${l.slice(0,12)}…" is ${l.length} characters (max 63)`);else if(!/^[a-z0-9_]([a-z0-9_-]*[a-z0-9])?$/.test(l))errs.push(`"${l}" has characters not allowed in a hostname`);});
+  if(raw.length>253)errs.push(`name is ${raw.length} characters (max 253)`);
+  if(errs.length){$('#nm-out').innerHTML=`<div class="note bad">${errs.join('<br>')}</div>`;return;}
+  const tld=L[L.length-1],kind=tld==='arpa'?'infrastructure TLD':tld.length===2?'country-code TLD (ccTLD)':'generic TLD (gTLD)',sfx=multi.includes(L.slice(-2).join('.'))?2:1,regIdx=L.length-sfx-1;
+  const rows=[['.','root zone','root servers → refer you to the '+tld+' servers']];
+  for(let i=L.length-1;i>=0;i--){const name=L.slice(i).join('.'),depth=L.length-i;let role,who;
+   if(depth===1){role=kind;who=`${tld} registry's servers → refer you to ${sfx===2?'the '+L.slice(-2).join('.')+' part of the registry':'the domain\'s nameservers'}`;}
+   else if(depth<=sfx){role='public suffix (a registry level, not registrable)';who='same registry → refers you to the domain\'s nameservers';}
+   else if(i===regIdx){role='registrable domain: what you buy';who='its authoritative nameservers (set at the registrar)';}
+   else{role='subdomain';who='usually the same authoritative servers (unless delegated further with NS records)';}
+   rows.push([name,role,who]);}
+  $('#nm-out').innerHTML=`<p>${L.length} labels: ${L.map(l=>`<span class="pill">${l} (${l.length})</span>`).join(' ')} · ${raw.length+1} characters as an FQDN</p><table><tr><th>Level</th><th>Name</th><th>What it is</th><th>Who answers for it</th></tr>${rows.map((r,i)=>`<tr><td>${i}</td><td class="mono">${r[0]==='.'?'.':r[0]+'.'}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</table>`;};
+ $('#nm-go').click();
+})();
+
+/* ---------- D4: lookup simulator ---------- */
+(()=>{const C=[['browser','Browser','client'],['os','OS stub resolver','client'],['res','Recursive resolver','edge'],['root','Root server','edge'],['tld','.com TLD server','edge'],['auth','ns1.acmeshop.com','svc']];
+ let steps=[],i=0;
+ const Q=(to,rd)=>`<span class="s">;; QUERY → ${to}   id 0x${Math.floor(rnd(4096,65535)).toString(16)}   flags: ${rd?'rd':'(none)'}   UDP port 53</span>\n<span class="k">;; QUESTION</span>\nwww.acmeshop.com.            IN  A\n`;
+ function build(){const bc=$('#sim-bc').checked,rc=$('#sim-rc').checked,tc=$('#sim-tc').checked;steps=[];
+  steps.push({f:'browser',t:'browser',ms:0,title:'1. Browser checks its own DNS cache',text:bc?'Hit. The browser looked this name up recently and the TTL has not run out. No DNS traffic at all.':'Miss. The browser has not seen this name recently (or the entry expired).',pkt:`<span class="s">chrome://net-internals/#dns</span>\nwww.acmeshop.com → ${bc?'<span class="a">203.0.113.10 (expires in 212 s)</span>':'<span class="w">not found</span>'}`});
+  if(!bc){
+   steps.push({f:'browser',t:'os',ms:.2,title:'2. Browser asks the operating system',text:'The browser calls the OS (getaddrinfo on Linux and macOS). The OS reads /etc/hosts first, then checks its own cache. Both miss.',pkt:`<span class="s">getaddrinfo("www.acmeshop.com", "443", …)</span>\n/etc/hosts        → no entry\nOS cache          → <span class="w">miss</span>\n<span class="s">/etc/resolv.conf:  nameserver 1.1.1.1</span>`});
+   steps.push({f:'os',t:'res',ms:12,title:'3. Stub resolver sends a recursive query',text:'The stub builds one UDP packet with RD=1 ("recursion desired") and sends it to the resolver it was configured with. It will wait for a single, final answer.',pkt:Q('1.1.1.1',true)});
+   if(rc)steps.push({f:'res',t:'res',ms:0,title:'4. Resolver checks its cache: hit',text:'Someone else using this resolver asked for the same name a moment ago. The resolver answers at once, with the remaining TTL. This is the common case for popular sites.',pkt:`<span class="s">cache</span>\nwww.acmeshop.com.  CNAME acmeshop.com.   (TTL left 2870)\nacmeshop.com.      A     203.0.113.10    (TTL left 2870)`});
+   else{
+    steps.push({f:'res',t:'res',ms:0,title:'4. Resolver checks its cache: miss',text:tc?'It has no answer for www.acmeshop.com. But it does know the .com servers, because that referral has a 2-day TTL. So it can skip the root.':'It has nothing useful cached, not even the .com servers. It starts at the top, using its built-in root hints.',pkt:`<span class="s">cache</span>\nwww.acmeshop.com.  <span class="w">miss</span>\nacmeshop.com. NS   <span class="w">miss</span>\ncom. NS            ${tc?'<span class="a">a.gtld-servers.net … (TTL left 151 200)</span>':'<span class="w">miss → use root hints</span>'}`});
+    if(!tc)steps.push({f:'res',t:'root',ms:14,title:'5. Resolver asks a root server',text:'It sends the full question to a.root-servers.net (198.41.0.4), reached through anycast. RD is off: this is an iterative query. The root does not know the answer. It returns a referral: the .com servers, with their IPs as glue.',pkt:Q('a.root-servers.net (198.41.0.4)',false)+`\n<span class="s">;; RESPONSE   flags: qr   (no aa)   ANSWER: 0  AUTHORITY: 13  ADDITIONAL: 26</span>\n<span class="k">;; AUTHORITY  (referral)</span>\ncom.                 172800  IN NS  a.gtld-servers.net.\ncom.                 172800  IN NS  b.gtld-servers.net.\n<span class="s">…11 more</span>\n<span class="k">;; ADDITIONAL (glue)</span>\na.gtld-servers.net.  172800  IN A   192.5.6.30\nb.gtld-servers.net.  172800  IN A   192.33.14.30`});
+    steps.push({f:'res',t:'tld',ms:22,title:`${tc?5:6}. Resolver asks a .com TLD server`,text:'Same question to a.gtld-servers.net (192.5.6.30). The .com zone does not hold acmeshop.com\'s records, only its delegation. Another referral, and because the nameservers are inside acmeshop.com, it includes glue.',pkt:Q('a.gtld-servers.net (192.5.6.30)',false)+`\n<span class="s">;; RESPONSE   flags: qr   (no aa)   ANSWER: 0  AUTHORITY: 2  ADDITIONAL: 2</span>\n<span class="k">;; AUTHORITY  (referral)</span>\nacmeshop.com.        172800  IN NS  ns1.acmeshop.com.\nacmeshop.com.        172800  IN NS  ns2.acmeshop.com.\n<span class="k">;; ADDITIONAL (glue)</span>\nns1.acmeshop.com.    172800  IN A   198.51.100.53\nns2.acmeshop.com.    172800  IN A   203.0.113.53`});
+    steps.push({f:'res',t:'auth',ms:81,title:`${tc?6:7}. Resolver asks acmeshop.com's nameserver`,text:'Now it asks ns1.acmeshop.com (198.51.100.53). This server holds the zone. It answers with AA=1. www is a CNAME to acmeshop.com, which is in the same zone, so the server includes that A record too. The resolver will not need a second lookup.',pkt:Q('ns1.acmeshop.com (198.51.100.53)',false)+`\n<span class="s">;; RESPONSE   flags: qr <span class="a">aa</span>   status: NOERROR   ANSWER: 2</span>\n<span class="k">;; ANSWER</span>\n<span class="a">www.acmeshop.com.    3600  IN CNAME  acmeshop.com.\nacmeshop.com.        3600  IN A      203.0.113.10</span>`});
+   }
+   steps.push({f:'res',t:'os',ms:0,title:'Resolver answers the stub',text:rc?'One packet back with RA=1. The whole lookup cost one round trip to the resolver.':'The resolver caches the answer and both referrals, each with its own TTL. Then it sends one packet back with RA=1 ("recursion available"). It is not authoritative, so AA is off.',pkt:`<span class="s">;; RESPONSE from 1.1.1.1   flags: qr rd ra   status: NOERROR</span>\n<span class="k">;; ANSWER</span>\nwww.acmeshop.com.    ${rc?2870:3600}  IN CNAME  acmeshop.com.\nacmeshop.com.        ${rc?2870:3600}  IN A      203.0.113.10`});
+   steps.push({f:'os',t:'browser',ms:.2,title:'OS returns the address to the browser',text:'getaddrinfo returns 203.0.113.10. The OS and the browser both cache it.',pkt:`getaddrinfo → [ 203.0.113.10 ]`});}
+  steps.push({f:'browser',t:'browser',ms:0,title:'Browser connects',text:'DNS is done. The browser opens TCP (or QUIC) to 203.0.113.10:443 and starts TLS. Everything from here on is HTTP.',pkt:`<span class="a">connect(203.0.113.10:443)</span>  → TLS handshake → GET /`});
+  i=0;show();}
+ function show(){const s=steps[i];$('#sim-comp').innerHTML=C.map(c=>`<div class="n ${c[2]}${c[0]===s.f?' hot':''}${c[0]===s.t&&s.t!==s.f?' hotok':''}">${c[1]}</div>`).join('<div class="ar" style="align-self:center">⇄</div>');
+  const total=steps.slice(0,i+1).reduce((a,x)=>a+x.ms,0);$('#sim-time').textContent=`time so far: ~${Math.round(total)} ms`;$('#sim-pos').textContent=`Step ${i+1} of ${steps.length}`;
+  $('#sim-title').textContent=s.title;$('#sim-text').textContent=s.text;$('#sim-pkt').innerHTML=s.pkt;$('#sim-prev').disabled=i===0;$('#sim-next').disabled=i===steps.length-1;}
+ $('#sim-next').onclick=()=>{i++;show();};$('#sim-prev').onclick=()=>{i--;show();};
+ ['#sim-bc','#sim-rc','#sim-tc','#sim-reset'].forEach(s=>$(s).onclick=build);build();
+})();
+
+/* ---------- D5: glue ---------- */
+(()=>{const lg=$('#gl-log');$('#gl-go').onclick=async()=>{lg.innerHTML='';const inz=$('#gl-ns').value==='in',glue=$('#gl-on').checked;const L=async(m,c)=>{await sleep(350);log(lg,m,c);};
+ await L('Resolver → .com: www.acmeshop.com A?','info');
+ if(!inz){await L('.com → referral: acmeshop.com NS ns1.dnsprovider.net (no glue: the name is under .net, which .com is not responsible for)','msg');
+  await L('Resolver: I need the IP of ns1.dnsprovider.net. Start a separate lookup.','warn');await L('  → .net servers → referral to dnsprovider.net nameservers → A 192.0.2.53','info');
+  await L('Resolver → 192.0.2.53: www.acmeshop.com A?','info');await L('✓ 203.0.113.10. It worked, with a few extra round trips (these get cached).','ok');return;}
+ if(glue){await L('.com → referral: acmeshop.com NS ns1.acmeshop.com + ADDITIONAL: ns1.acmeshop.com A 198.51.100.53 (glue)','msg');await L('Resolver → 198.51.100.53: www.acmeshop.com A?','info');await L('✓ 203.0.113.10','ok');return;}
+ await L('.com → referral: acmeshop.com NS ns1.acmeshop.com (no address!)','msg');
+ for(let k=0;k<3;k++){await L('Resolver: I need ns1.acmeshop.com A. Who knows? → ask .com','warn');await L('.com → "ask ns1.acmeshop.com" (the server whose address I am looking for)','bad');}
+ await L('✗ Loop detected. SERVFAIL. The domain is unreachable.','bad');};
+})();
+
+/* ---------- D6: propagation ---------- */
+(()=>{const cities=['Karachi','London','New York','Singapore','São Paulo'];let ago=[];
+ const newAgo=()=>{const T=+$('#pp-ttl').value;ago=cities.map(()=>Math.random()*T);draw();};
+ const fmt=s=>s>=3600?(s/3600).toFixed(1)+' h':s>=60?Math.round(s/60)+' min':Math.round(s)+' s';
+ function draw(){const T=+$('#pp-ttl').value,t=+$('#pp-t').value/100*T;$('#pp-tv').textContent=fmt(t);let n=0;
+  $('#pp-view').innerHTML=cities.map((c,k)=>{const rem=T-ago[k],upd=t>=rem;if(upd)n++;return `<div class="row mid" style="justify-content:flex-start;margin:3px 0"><div class="n ${upd?'svc':'bad'}" style="min-width:150px">${c} resolver<small>${upd?'refetched: new IP':'old copy expires in '+fmt(rem-t)}</small></div><span class="pill ${upd?'ok':'warn'}">${upd?'203.0.113.99 (new)':'203.0.113.10 (old)'}</span></div>`;}).join('')+`<div class="note ${n===5?'good':'warn'}">${n}/5 resolvers show the new IP. ${n===5?'Done. The worst case is exactly one TTL.':'Users of the other resolvers still go to the old server. Keep it running until one full TTL has passed.'}</div>`;}
+ $('#pp-t').oninput=draw;$('#pp-ttl').onchange=newAgo;$('#pp-new').onclick=newAgo;newAgo();
+})();
+
+/* ---------- D7: anycast ---------- */
+(()=>{const S=['Karachi','Dubai','Frankfurt','London','New York','Singapore','Sydney'],R={lhe:[15,35,120,130,220,90,200],fra:[120,100,3,12,85,160,280],nyc:[220,190,85,75,2,230,200],syd:[200,170,280,270,200,90,2]},down=new Set(),lg=$('#an-log');
+ function draw(){$('#an-sites').innerHTML=S.map((s,k)=>`<div class="n ${down.has(k)?'bad':'edge'}" data-k="${k}" style="cursor:pointer;min-width:95px">${s}<small>${down.has(k)?'DOWN (withdrawn from BGP)':'announces 192.5.5.241'}</small><small>click to ${down.has(k)?'restore':'take down'}</small></div>`).join('');
+  $$('#an-sites .n').forEach(d=>d.onclick=()=>{const k=+d.dataset.k;down.has(k)?down.delete(k):down.add(k);log(lg,`${S[k]} site ${down.has(k)?'stops':'resumes'} announcing 192.5.5.241`,down.has(k)?'bad':'ok');draw();});}
+ $('#an-q').onclick=()=>{const r=R[$('#an-loc').value];let best=-1;r.forEach((v,k)=>{if(!down.has(k)&&(best<0||v<r[best]))best=k;});
+  $$('#an-sites .n').forEach(d=>d.classList.toggle('hotok',+d.dataset.k===best));
+  log(lg,best<0?'No site reachable. (With 13 letters, the resolver just tries another letter.)':`Query to 192.5.5.241 → routed to the ${S[best]} site · round trip ~${r[best]} ms`,best<0?'bad':'info');};draw();
+})();
+
+/* ---------- D9: zone transfer ---------- */
+(()=>{let P,Sd;const lg=$('#xf-log');const reset=()=>{P={serial:2026093001,ip:10};Sd={serial:2026093001,ip:10};lg.innerHTML='';draw();};
+ const draw=()=>$('#xf-state').innerHTML=`<span>ns1 (primary)</span><b>serial ${P.serial} · www A 203.0.113.${P.ip}</b><span>ns2 (secondary)</span><b style="color:${Sd.ip===P.ip?'var(--ok)':'var(--bad)'}">serial ${Sd.serial} · www A 203.0.113.${Sd.ip}${Sd.ip!==P.ip?'  OUT OF DATE':''}</b><span>Resolvers</span><b>${Sd.ip===P.ip?'always get the same answer':'get different answers depending on which server they ask'}</b>`;
+ const check=why=>{log(lg,`ns2 (${why}) → ns1: SOA? → serial ${P.serial} (mine: ${Sd.serial})`,'info');
+  if(P.serial>Sd.serial){log(lg,`ns1's serial is higher → IXFR over TCP → ns2 now has www A 203.0.113.${P.ip}`,'ok');Sd={...P};}else log(lg,P.ip!==Sd.ip?'Serial is not higher → ns2 thinks nothing changed and keeps the old data. (Forgot to bump the serial.)':'Serial is the same → nothing to do','warn');draw();};
+ $('#xf-edit').onclick=()=>{P.ip++;if($('#xf-bump').checked)P.serial++;log(lg,`Edited on ns1: www A 203.0.113.${P.ip}${$('#xf-bump').checked?`, serial → ${P.serial}`:', serial NOT changed'}`,'mute');draw();
+  if($('#xf-notify').checked){log(lg,'ns1 → ns2: NOTIFY acmeshop.com','msg');check('after NOTIFY');}else log(lg,'NOTIFY lost. ns2 will only notice at its next REFRESH (7200 s).','bad');};
+ $('#xf-timer').onclick=()=>check('REFRESH timer');$('#xf-reset').onclick=reset;reset();
+})();
+
+/* ---------- D10: record explorer ---------- */
+(()=>{const T=[
+ ['A','Maps a name to an IPv4 address.','acmeshop.com.  3600 IN A 203.0.113.10','Several A records on one name = round-robin load spreading.'],
+ ['AAAA','Maps a name to an IPv6 address. ("Quad A": IPv6 is four times longer.)','acmeshop.com.  3600 IN AAAA 2001:db8::10','Browsers ask for A and AAAA in parallel (Happy Eyeballs, ch. 14).'],
+ ['CNAME','Alias. "This name is really that other name. Look that up instead."','www.acmeshop.com. 3600 IN CNAME acmeshop.com.','No other records may share the name. Not allowed at the zone apex. Points to a name, never an IP.'],
+ ['MX','Mail exchanger: which servers accept email for the domain, with a priority.','acmeshop.com. 3600 IN MX 10 mail1.acmeshop.com.\nacmeshop.com. 3600 IN MX 20 mail2.acmeshop.com.','Lower number = try first. The target must be a name with an A/AAAA record, not a CNAME.'],
+ ['TXT','Free text. Used for domain ownership checks and email security.','acmeshop.com. IN TXT "v=spf1 mx -all"\n_dmarc.acmeshop.com. IN TXT "v=DMARC1; p=reject"\nsel1._domainkey.acmeshop.com. IN TXT "v=DKIM1; k=rsa; p=MIIB…"','SPF (which servers may send mail), DKIM (public key for mail signatures) and DMARC (policy) all live in TXT records. So do Google/Microsoft site verification codes.'],
+ ['NS','Names the authoritative nameservers for a zone. In the parent zone it creates the delegation.','acmeshop.com. 172800 IN NS ns1.acmeshop.com.','Must match between parent (.com) and child (your zone). A mismatch or dead server is a "lame delegation".'],
+ ['SOA','Start of authority: one per zone. Primary server, admin email, serial and timers.','acmeshop.com. IN SOA ns1.acmeshop.com. hostmaster.acmeshop.com. 2026093001 7200 3600 1209600 300','The admin email is written with a dot instead of @. The last number sets how long "no such name" is cached (ch. 6, 9).'],
+ ['PTR','Pointer from an IP back to a name. Lives under in-addr.arpa / ip6.arpa.','10.113.0.203.in-addr.arpa. IN PTR acmeshop.com.','Set by whoever owns the IP block (ch. 12).'],
+ ['SRV','Service location: host and port for a named service and protocol.','_sip._tcp.acmeshop.com. IN SRV 10 60 5060 sip.acmeshop.com.','Fields: priority, weight, port, target. Used by SIP, XMPP, LDAP, Minecraft, Active Directory.'],
+ ['CAA','Which certificate authorities may issue TLS certificates for the domain.','acmeshop.com. IN CAA 0 issue "letsencrypt.org"','CAs must check this before issuing (RFC 8659). It blocks mis-issuance by other CAs.'],
+ ['HTTPS / SVCB','Tells clients how to connect: supported protocols (h3, h2), IP hints, ECH keys. Also works at the apex.','acmeshop.com. IN HTTPS 1 . alpn="h3,h2" ipv4hint=203.0.113.10','RFC 9460. Browsers query it next to A/AAAA to skip a round trip and go straight to HTTP/3.'],
+ ['DNSKEY / DS / RRSIG','DNSSEC records: public keys, parent\'s hash of the child\'s key, and signatures.','acmeshop.com. IN DNSKEY 257 3 13 mdsswUyr3D…\nacmeshop.com. IN DS 2371 13 2 1F987CC6…  (in .com)\nacmeshop.com. IN RRSIG A 13 2 3600 …','See chapter 13 for the chain of trust.']];
+ T.forEach(t=>{const b=document.createElement('button');b.textContent=t[0];b.onclick=()=>{$$('#rr-btns button').forEach(x=>x.classList.remove('pri'));b.classList.add('pri');$('#rr-out').innerHTML=`<p><b>${t[0]}</b>: ${t[1]}</p><pre>${t[2]}</pre><div class="note">${t[3]}</div>`;};$('#rr-btns').appendChild(b);});$('#rr-btns button').click();
+})();
+
+/* ---------- D10: resolver against zone ---------- */
+(()=>{const Z=[['acmeshop.com','SOA','ns1.acmeshop.com. hostmaster.acmeshop.com. 2026093001 7200 3600 1209600 300'],['acmeshop.com','NS','ns1.acmeshop.com.'],['acmeshop.com','NS','ns2.acmeshop.com.'],['acmeshop.com','A','203.0.113.10'],['acmeshop.com','AAAA','2001:db8::10'],['acmeshop.com','MX','10 mail1.acmeshop.com.'],['acmeshop.com','MX','20 mail2.acmeshop.com.'],['acmeshop.com','TXT','"v=spf1 mx -all"'],['acmeshop.com','CAA','0 issue "letsencrypt.org"'],['acmeshop.com','HTTPS','1 . alpn="h3,h2" ipv4hint=203.0.113.10'],
+ ['www.acmeshop.com','CNAME','acmeshop.com.'],['shop.acmeshop.com','CNAME','www.acmeshop.com.'],['blog.acmeshop.com','CNAME','acmeshop.hosted-blogs.example.'],['ns1.acmeshop.com','A','198.51.100.53'],['ns2.acmeshop.com','A','203.0.113.53'],['mail1.acmeshop.com','A','203.0.113.25'],['mail2.acmeshop.com','A','198.51.100.25'],['api.acmeshop.com','A','203.0.113.11'],['api.acmeshop.com','A','203.0.113.12'],['_sip._tcp.acmeshop.com','SRV','10 60 5060 sip.acmeshop.com.'],['sip.acmeshop.com','A','203.0.113.40'],['_dmarc.acmeshop.com','TXT','"v=DMARC1; p=reject"']];
+ const types=['A','AAAA','CNAME','MX','TXT','NS','SOA','SRV','CAA','HTTPS'];$('#rs-type').innerHTML=types.map(t=>`<option>${t}</option>`).join('');
+ $('#rs-zone').textContent='; zone acmeshop.com.  ($TTL 3600)\n'+Z.map(r=>`${(r[0]==='acmeshop.com'?'@':r[0].replace('.acmeshop.com','')).padEnd(10)} IN ${r[1].padEnd(6)} ${r[2]}`).join('\n');
+ const pad=s=>(s+'.').padEnd(26);
+ function go(){let name=$('#rs-name').value.trim().toLowerCase().replace(/\.$/,''),type=$('#rs-type').value;const q=name,ans=[],notes=[];let status='NOERROR',auth=false;
+  if(!(name==='acmeshop.com'||name.endsWith('.acmeshop.com'))){$('#rs-out').innerHTML=`<span class="s">;; status: <span class="w">REFUSED</span>   flags: qr</span>\nThis server is authoritative only for acmeshop.com.\nIt is not a resolver, so it won't look up other names.`;return;}
+  for(let hop=0;hop<8;hop++){if(!(name==='acmeshop.com'||name.endsWith('.acmeshop.com'))){notes.push(`The CNAME points outside this zone. A resolver would now start a new lookup for ${name} from the root.`);break;}
+   const recs=Z.filter(r=>r[0]===name);
+   if(!recs.length){const ent=Z.some(r=>r[0].endsWith('.'+name));if(ent){status='NOERROR';auth=true;notes.push(`${name} has no records itself, but names exist under it (an "empty non-terminal"), so it is NODATA, not NXDOMAIN.`);}else{status=hop?'NOERROR':'NXDOMAIN';auth=true;if(hop)notes.push('The CNAME target does not exist.');else notes.push('No such name in the zone.');}break;}
+   const hit=recs.filter(r=>r[1]===type);if(hit.length){hit.forEach(r=>ans.push(`${pad(r[0])}3600 IN ${r[1].padEnd(6)}${r[2]}`));break;}
+   const cn=recs.find(r=>r[1]==='CNAME');if(cn){ans.push(`${pad(cn[0])}3600 IN CNAME ${cn[2]}`);notes.push(`${name} is an alias. Restarting the lookup at ${cn[2]}`);name=cn[2].replace(/\.$/,'');continue;}
+   auth=true;notes.push(`${name} exists but has no ${type} record: NODATA.`);break;}
+  const soa=Z[0];$('#rs-out').innerHTML=`<span class="s">;; status: </span><span class="${status==='NXDOMAIN'?'w':'a'}">${status}</span><span class="s">   flags: qr aa   ANSWER: ${ans.length}</span>\n<span class="k">;; QUESTION</span>\n${pad(q)}   IN ${type}\n`+(ans.length?`<span class="k">;; ANSWER</span>\n<span class="a">${ans.join('\n')}</span>\n`:'')+(auth&&!ans.slice(-1)[0]?.includes(' '+type+' ')?`<span class="k">;; AUTHORITY</span>\n${pad('acmeshop.com')}300 IN SOA   ${soa[2]}\n`:'')+(notes.length?`\n<span class="s">; ${notes.join('\n; ')}</span>`:'');}
+ $('#rs-go').onclick=go;
+ [['shop.acmeshop.com','A'],['acmeshop.com','MX'],['api.acmeshop.com','A'],['www.acmeshop.com','MX'],['nope.acmeshop.com','A'],['_tcp.acmeshop.com','SRV'],['blog.acmeshop.com','A'],['google.com','A']].forEach(([n,t])=>{const b=document.createElement('button');b.textContent=`${n} ${t}`;b.onclick=()=>{$('#rs-name').value=n;$('#rs-type').value=t;go();};$('#rs-quick').appendChild(b);});go();
+})();
+
+/* ---------- D11: wire format ---------- */
+(()=>{const T={A:1,NS:2,CNAME:5,SOA:6,PTR:12,MX:15,TXT:16,AAAA:28,SRV:33,DS:43,RRSIG:46,DNSKEY:48,HTTPS:65,CAA:257};
+ $('#wi-type').innerHTML=Object.keys(T).map(t=>`<option>${t}</option>`).join('');
+ const h2=n=>n.toString(16).padStart(2,'0'),w=n=>[n>>8,n&255];
+ function draw(){const name=$('#wi-name').value.trim().replace(/\.$/,''),rd=$('#wi-rd').checked,edns=$('#wi-edns').checked,dob=$('#wi-do').checked,t=T[$('#wi-type').value],id=0x3a7c,flags=rd?0x0100:0;
+  const g=[];const add=(cls,bytes,tip)=>g.push({cls,bytes,tip});
+  add('h1',w(id),'ID 0x3a7c: random, copied into the reply');add('h1',w(flags),`flags ${flags.toString(2).padStart(16,'0')}: QR=0 OPCODE=0 AA=0 TC=0 RD=${rd?1:0}`);add('h1',w(1),'QDCOUNT = 1 question');add('h1',w(0),'ANCOUNT = 0');add('h1',w(0),'NSCOUNT = 0');add('h1',w(edns?1:0),`ARCOUNT = ${edns?1:0}${edns?' (the OPT record)':''}`);
+  for(const l of name.split('.').filter(Boolean)){const b=[...new TextEncoder().encode(l)];add('h2',[b.length],`length ${b.length}`);add('h2',b,`"${l}"`);}
+  add('h2',[0],'0 = end of name (the root label)');add('h3',w(t),`QTYPE ${t} = ${$('#wi-type').value}`);add('h3',w(1),'QCLASS 1 = IN (internet)');
+  if(edns){add('h4',[0],'OPT name: root');add('h4',w(41),'TYPE 41 = OPT');add('h4',w(1232),'CLASS field reused: UDP payload size 1232');add('h4',[0,0],'extended RCODE 0, EDNS version 0');add('h4',w(dob?0x8000:0),`flags: DO=${dob?1:0}${dob?' → send DNSSEC signatures':''}`);add('h4',w(0),'RDLENGTH 0');}
+  const total=g.reduce((a,x)=>a+x.bytes.length,0);
+  $('#wi-hex').innerHTML=g.map(x=>`<span class="${x.cls}" title="${x.tip.replace(/"/g,'&quot;')}">${x.bytes.map(h2).join(' ')}</span>`).join('')+`\n\n<span style="color:var(--mute)">${total} bytes total · hover a group to see what it means</span>`;
+  $('#wi-legend').innerHTML=`<span class="pill" style="background:rgba(78,161,255,.25)">header, 12 bytes</span> <span class="pill" style="background:rgba(181,140,255,.25)">QNAME: length-prefixed labels</span> <span class="pill" style="background:rgba(62,207,142,.25)">QTYPE + QCLASS</span> ${edns?'<span class="pill" style="background:rgba(245,185,66,.25)">EDNS(0) OPT record</span>':''}<p class="hint">Notice there are no dots on the wire. <code>www.acmeshop.com</code> is sent as 03 www 08 acmeshop 03 com 00. Each label is prefixed with its length, which is why a label can't exceed 63 bytes (the top two bits of that byte are reserved for compression pointers).</p>`;}
+ ['#wi-name','#wi-type','#wi-rd','#wi-edns','#wi-do'].forEach(s=>$(s).oninput=draw);draw();
+})();
+
+/* ---------- D12: PTR ---------- */
+(()=>{const exp6=s=>{let [h,t]=s.split('::');let hp=h?h.split(':'):[];const tp=t?t.split(':'):[];if(s.includes('::'))hp=[...hp,...Array(8-hp.length-tp.length).fill('0'),...tp];return hp.length===8&&hp.every(x=>/^[0-9a-f]{1,4}$/i.test(x))?hp.map(x=>x.padStart(4,'0').toLowerCase()).join(''):null;};
+ function go(){const ip=$('#pt-ip').value.trim(),o=$('#pt-out');
+  if(/^\d+\.\d+\.\d+\.\d+$/.test(ip)&&ip.split('.').every(x=>+x<256)){const p=ip.split('.');o.innerHTML=`IP:        ${ip}\nreversed:  ${[...p].reverse().join('.')}\n<span class="a">PTR name:  ${[...p].reverse().join('.')}.in-addr.arpa.</span>\n\n<span class="s">Tree path: . → arpa → in-addr → ${p[0]} → ${p[1]} → ${p[2]} → ${p[3]}\nThe owner of ${p[0]}.${p[1]}.${p[2]}.0/24 is usually delegated ${p[2]}.${p[1]}.${p[0]}.in-addr.arpa.\n$ dig -x ${ip}</span>`;return;}
+  const x=ip.includes(':')?exp6(ip):null;if(x){const nib=[...x].reverse().join('.');o.innerHTML=`IP:        ${ip}\nexpanded:  ${x.match(/.{4}/g).join(':')}\n<span class="a">PTR name:  ${nib}.ip6.arpa.</span>\n\n<span class="s">IPv6 reverses every hex digit (nibble), not every group, so blocks can be delegated on 4-bit boundaries. 32 labels deep.</span>`;return;}
+  o.innerHTML='<span class="w">Not a valid IPv4 or IPv6 address.</span>';}
+ $('#pt-go').onclick=go;$('#pt-v6').onclick=()=>{$('#pt-ip').value='2001:db8::10';go();};go();
+})();
+
+/* ---------- D13: poisoning ---------- */
+(()=>{const N=[10,100,1000,10000];let last=null;
+ function calc(){const n=N[+$('#po-n').value-1],port=$('#po-port').checked,x20=$('#po-0x20').checked,sec=$('#po-sec').checked,bits=16+(port?16:0)+(x20?14:0),p=sec?0:Math.min(1,n/2**bits);$('#po-nv').textContent=n.toLocaleString();
+  const races=p?Math.ceil(Math.log(.5)/Math.log(1-p)):Infinity,secs=races/100,fmt=s=>s<60?s.toFixed(1)+' s':s<3600?(s/60).toFixed(1)+' min':s<86400*365?(s/3600).toFixed(1)+' h':(s/86400/365).toExponential(1)+' years';
+  $('#po-out').innerHTML=stat(bits+' bits','attacker must guess'+(port?' (ID + port'+(x20?' + letter case':'')+')':' (just the 16-bit ID)'))+stat(sec?'0':(p*100<0.001?p.toExponential(2):(p*100).toFixed(3))+'%','chance to win one race',sec?'ok':p>1e-3?'bad':'warn')+stat(sec?'never':races===Infinity?'∞':races.toLocaleString(),'races for a 50% chance')+stat(sec?'never':fmt(secs),'at 100 races/s (Kaminsky: each race is a new random name)',sec||secs>86400*30?'ok':'bad')+(last!==null?`<div class="note ${last?'bad':'good'}">1,000 races run: attacker won <b>${last}</b> time(s).${last?' The resolver now sends every user of acmeshop.com to the attacker until the TTL expires.':''}${sec?' Forged answers fail signature checks, so even a matching packet is rejected.':''}</div>`:'');}
+ $('#po-race').onclick=()=>{const n=N[+$('#po-n').value-1],bits=16+($('#po-port').checked?16:0)+($('#po-0x20').checked?14:0),p=$('#po-sec').checked?0:Math.min(1,n/2**bits);let w=0;for(let k=0;k<1000;k++)if(Math.random()<p)w++;last=w;calc();};
+ ['#po-n','#po-port','#po-0x20','#po-sec'].forEach(s=>$(s).oninput=()=>{last=null;calc();});calc();
+})();
+
+/* ---------- D13: DNSSEC ---------- */
+(()=>{$('#ds-go').onclick=async()=>{const a=$('#ds-atk').value,o=$('#ds-out');o.innerHTML='';
+ const S=[['Root DNSKEY matches the built-in trust anchor',1],['Root RRSIG over DS(com) verifies with the root key',1],['Hash of .com DNSKEY (KSK) equals DS(com)',1],['.com RRSIG over DS(acmeshop.com) verifies',1],['Hash of acmeshop.com KSK equals DS(acmeshop.com)',a!=='ds'],['acmeshop.com DNSKEY set is signed by that KSK',a!=='key'],['RRSIG over "www A" verifies with the ZSK',a!=='a']];
+ const why={ds:'The DS in .com does not match the key acmeshop.com is using. Often caused by switching DNS provider without updating the DS.',key:'The attacker\'s key is in the DNSKEY set, but that set must be signed by the KSK whose hash is in .com. The attacker can\'t make that signature.',a:'The forged A record has no valid signature. The attacker does not have acmeshop.com\'s private ZSK.'};
+ for(const [t,ok] of S){await sleep(350);o.insertAdjacentHTML('beforeend',`<div class="n ${ok?'svc':'bad'}" style="text-align:left;margin:2px 0">${ok?'✓':'✗'} ${t}</div>`);if(!ok){o.insertAdjacentHTML('beforeend',`<div class="note bad">Validation failed → resolver returns <b>SERVFAIL</b>. ${why[a]}</div>`);return;}}
+ o.insertAdjacentHTML('beforeend','<div class="note good">Chain complete from the root to the record. Resolver returns the answer with the <b>AD</b> (authentic data) flag.</div>');};
+})();
+
+/* ---------- D14: debugging ---------- */
+(()=>{const D=[['NXDOMAIN','The name does not exist in the zone. Check for a typo, or whether the record was created at all. If you just created it, a resolver may still have the "no such name" answer cached (SOA minimum). Compare with dig @your-nameserver name, which skips caches.'],
+ ['SERVFAIL','The resolver could not get a good answer. Common causes: the authoritative servers are down or don\'t serve the zone (lame delegation), or DNSSEC validation failed. Test: dig +cd name. If it works with +cd (checking disabled), DNSSEC is the problem.'],
+ ['REFUSED','You asked a server that won\'t answer you. For example, an authoritative server for a zone it doesn\'t host, or a company resolver that only serves its own network.'],
+ ['Timeout','No reply at all. UDP port 53 may be blocked by a firewall, or the server is down. Try another resolver (dig @1.1.1.1), try TCP (dig +tcp), and check VPN settings.'],
+ ['Works for me, not for others','Different resolvers have different cached copies. Compare dig @1.1.1.1, @8.8.8.8 and @ns1.yourdomain. Wait one TTL. Check NS at the registry with dig +trace.'],
+ ['Works in dig, not in the browser','The browser may use its own DoH resolver, its own cache, or an /etc/hosts entry. A VPN may send some names to a different DNS server ("split DNS"). Clear the browser host cache and check the hosts file.'],
+ ['Email not arriving','Check the MX records point to names with A records (not CNAMEs), and that SPF/DKIM/DMARC TXT records are correct. Check the PTR of the sending IP.']];
+ D.forEach(d=>{const b=document.createElement('button');b.textContent=d[0];b.onclick=()=>{$$('#dbg-btns button').forEach(x=>x.classList.remove('pri'));b.classList.add('pri');$('#dbg-out').innerHTML=`<b>${d[0]}</b>: ${d[1]}`;};$('#dbg-btns').appendChild(b);});
+})();
+</script>
+</body>
+</html>
