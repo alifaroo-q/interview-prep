@@ -148,6 +148,7 @@ input[type=range]{vertical-align:middle;width:160px}
 <h2>1. The relational model: tables, keys, relations</h2>
 <div class="topics">Covers: relations, primary/candidate/surrogate/natural keys, foreign keys and ON DELETE actions, the missing index on referencing columns, one-to-one / one-to-many / many-to-many, 1NF to 3NF, denormalization. Sources: PostgreSQL 18 docs "Constraints" (§5.5, incl. §5.5.4 Primary Keys, §5.5.5 Foreign Keys), "Identity Columns" (§5.3), "CREATE SEQUENCE", "ORDER BY" (§7.5); PostgreSQL source <code>src/backend/utils/adt/ri_triggers.c</code> (REL_18_STABLE). Normal forms follow E. F. Codd's general theory, not a PostgreSQL feature. Checked 2026-09-30.</div>
 <p class="lead">A relational database keeps data in <b>tables</b>. A table is a set of rows that all have the same columns. A <b>key</b> is a column, or a group of columns, whose values identify one row. A <b>relation between tables</b> is one table that stores the key of a row in another table.</p>
+<p class="note">Some labs run real PostgreSQL. A lab titled "on real PostgreSQL" with one console runs PostgreSQL 18 in your browser (PGlite). It needs the page opened through the lab server: run <code>scripts/serve.sh</code>, then open <code>http://127.0.0.1:8787/</code>. The two-session labs in chapters 27 and 28 connect to a PostgreSQL server in Docker and need <code>scripts/serve.sh --docker</code>. All other labs work offline.</p>
 
 <h3>What a table is, and what it is not</h3>
 <p>In the theory, a table is called a <i>relation</i>. A relation is a set of rows. A set has no order and no duplicates. SQL keeps the first rule and relaxes the second. A table has no built-in row order. If you do not write <code>ORDER BY</code>, PostgreSQL returns the rows in an order that "depends on the scan and join plan types and the order on disk" (docs §7.5). That order can change after an <code>UPDATE</code>, a <code>VACUUM</code> or a new plan. Code that depends on it works in tests and fails later.</p>
@@ -1813,6 +1814,40 @@ EXECUTE by_status('new');</pre>
  <div class="bar"><span id="c12-stats"></span><button class="dan" id="c12-reset">Reset lab</button></div>
  <div class="log" id="c12-log"></div>
 </div>
+<template data-db="mvcc" data-engine="pg" data-ext="pageinspect">
+CREATE TABLE customers (id int PRIMARY KEY, name text NOT NULL, country text NOT NULL);
+INSERT INTO customers VALUES (1, 'ana', 'PT'), (2, 'chen', 'CN'), (3, 'bo', 'US');
+</template>
+<div class="lab sql" data-db="mvcc" id="c12-real">
+ <div class="t">Lab: MVCC on real PostgreSQL</div>
+ <p class="hint">This is PostgreSQL 18 in your browser, with the <code>pageinspect</code> extension. It has three customers, loaded by one transaction. Click the presets in order. Each one makes a change, then prints page 0 of the table with <code>heap_page_items(get_raw_page(...))</code>. Watch <code>t_xmin</code>, <code>t_xmax</code> and <code>t_ctid</code>. After the UPDATE, the old tuple gets an <code>xmax</code> and its <code>t_ctid</code> points to the new tuple. After the DELETE, the tuple stays on the page with an <code>xmax</code>. After the ROLLBACK, the new tuple stays on the page, and the old one keeps the <code>xmax</code> of the aborted XID but is still visible.</p>
+ <p class="hint"><code>lp_flags</code> is 1 for a normal tuple, 2 for a redirect, 3 for dead and 0 for an unused slot. <code>flags</code> decodes <code>t_infomask</code>. <code>HEAP_XMIN_COMMITTED</code> and <code>HEAP_XMIN_INVALID</code> are hint bits, set by the first reader that checks pg_xact. <code>HEAP_HOT_UPDATED</code> and <code>HEAP_ONLY_TUPLE</code> mark a HOT chain. Each Run is one transaction, also when the text has several statements, unless the text has its own <code>BEGIN</code> and <code>COMMIT</code> or <code>ROLLBACK</code>. So <code>pg_current_xact_id()</code> in the same Run shows the XID that made the change. The XID numbers depend on the engine. Only their order matters. Then write your own statements, or click "Reset database" to start again.</p>
+ <template data-label="1. Page after the INSERT">SELECT lp, lp_flags, t_xmin, t_xmax, t_ctid,
+       (heap_tuple_infomask_flags(t_infomask, t_infomask2)).raw_flags AS flags
+FROM heap_page_items(get_raw_page('customers', 0));</template>
+ <template data-label="2. UPDATE one row">UPDATE customers SET country = 'ES' WHERE id = 1;
+SELECT pg_current_xact_id();
+SELECT lp, lp_flags, t_xmin, t_xmax, t_ctid,
+       (heap_tuple_infomask_flags(t_infomask, t_infomask2)).raw_flags AS flags
+FROM heap_page_items(get_raw_page('customers', 0));</template>
+ <template data-label="3. DELETE one row">DELETE FROM customers WHERE id = 3;
+SELECT pg_current_xact_id();
+SELECT lp, lp_flags, t_xmin, t_xmax, t_ctid,
+       (heap_tuple_infomask_flags(t_infomask, t_infomask2)).raw_flags AS flags
+FROM heap_page_items(get_raw_page('customers', 0));</template>
+ <template data-label="4. UPDATE, then ROLLBACK">BEGIN;
+UPDATE customers SET country = 'DE' WHERE id = 2;
+SELECT pg_current_xact_id();
+ROLLBACK;
+SELECT lp, lp_flags, t_xmin, t_xmax, t_ctid,
+       (heap_tuple_infomask_flags(t_infomask, t_infomask2)).raw_flags AS flags
+FROM heap_page_items(get_raw_page('customers', 0));</template>
+ <template data-label="5. What SELECT sees">SELECT xmin, xmax, ctid, * FROM customers;
+SELECT lp, lp_flags, t_xmin, t_xmax, t_ctid,
+       (heap_tuple_infomask_flags(t_infomask, t_infomask2)).raw_flags AS flags
+FROM heap_page_items(get_raw_page('customers', 0));</template>
+ <textarea>SELECT xmin, xmax, ctid, * FROM customers;</textarea>
+</div>
 <button class="done-btn">Mark chapter as read</button>
 </section>
 
@@ -1897,6 +1932,32 @@ EXECUTE by_status('new');</pre>
  <svg class="c13-chart" id="c13-dead" viewBox="0 0 600 150" preserveAspectRatio="none"></svg>
  <svg class="c13-chart" id="c13-size" viewBox="0 0 600 150" preserveAspectRatio="none"></svg>
  <p class="hint">Top: dead tuples (red), the trigger line (dashed) and each autovacuum run (ticks). Bottom: table size in MB (green) and the size with no dead space at all (dashed).</p>
+</div>
+<template data-db="vacuum" data-engine="pg" data-ext="pageinspect">
+CREATE TABLE customers (id int PRIMARY KEY, name text NOT NULL, country text NOT NULL);
+INSERT INTO customers VALUES (1, 'ana', 'PT'), (2, 'chen', 'CN'), (3, 'bo', 'US'), (4, 'dana', 'US'), (5, 'eli', 'DE');
+</template>
+<div class="lab sql" data-db="vacuum" id="c13-real">
+ <div class="t">Lab: VACUUM on real PostgreSQL</div>
+ <p class="hint">PostgreSQL 18 in your browser, with five customers. Click the presets in order. Step 1 updates two rows and deletes one, so the page has three dead tuples (each with an <code>xmax</code>). Step 2 shows <code>n_dead_tup</code> = 3. Step 3 runs VACUUM. It must be alone in its Run, because VACUUM cannot run inside a transaction block. Step 4 shows the page after it. The deleted tuple's slot has <code>lp_flags</code> = 0 (unused). Each updated row's first slot is now a redirect (<code>lp_flags</code> = 2), and its <code>lp_off</code> holds the slot of the live tuple, because indexes still point to the first slot of a HOT chain. Step 5 shows <code>n_dead_tup</code> = 0. Step 6 inserts a row, and it goes into the freed slot.</p>
+ <p class="hint">A session sends its counters to the statistics system at the end of a transaction, at most once per second, so a statistics query right after a write can show old numbers. Step 1 ends with <code>pg_stat_force_next_flush()</code>, which makes the end of its own transaction send them. With your own statements, run the statistics query twice.</p>
+ <template data-label="1. Make dead tuples">UPDATE customers SET country = 'ES' WHERE id IN (1, 2);
+DELETE FROM customers WHERE id = 4;
+SELECT pg_stat_force_next_flush();
+SELECT lp, lp_flags, lp_off, t_xmin, t_xmax, t_ctid
+FROM heap_page_items(get_raw_page('customers', 0));</template>
+ <template data-label="2. Statistics before VACUUM">SELECT n_live_tup, n_dead_tup, n_tup_upd, n_tup_hot_upd, n_tup_del, vacuum_count
+FROM pg_stat_user_tables WHERE relname = 'customers';</template>
+ <template data-label="3. VACUUM">VACUUM customers;</template>
+ <template data-label="4. Page after VACUUM">SELECT lp, lp_flags, lp_off, t_xmin, t_xmax, t_ctid
+FROM heap_page_items(get_raw_page('customers', 0));</template>
+ <template data-label="5. Statistics after VACUUM">SELECT n_live_tup, n_dead_tup, n_tup_upd, n_tup_hot_upd, n_tup_del, vacuum_count
+FROM pg_stat_user_tables WHERE relname = 'customers';</template>
+ <template data-label="6. INSERT reuses a slot">INSERT INTO customers VALUES (6, 'fay', 'FR');
+SELECT lp, lp_flags, lp_off, t_xmin, t_xmax, t_ctid
+FROM heap_page_items(get_raw_page('customers', 0));</template>
+ <textarea>SELECT lp, lp_flags, lp_off, t_xmin, t_xmax, t_ctid
+FROM heap_page_items(get_raw_page('customers', 0));</textarea>
 </div>
 
 <h3>XID wraparound and freezing</h3>
@@ -3104,6 +3165,39 @@ startup cost = 0</pre>
  <div class="pkt" id="c21-out"></div>
 </div>
 <p>Three results from the lab are worth remembering. First, the crossover is at a low selectivity when correlation is near 0. An index scan that returns more than a few percent of an unordered table is usually slower than reading it all. Second, <code>random_page_cost</code> moves the crossover a lot. On SSDs many teams set it between 1.1 and 2 (a common practice, not a default), which makes index scans win more often. Third, correlation matters as much as selectivity. The same query on <code>created_at</code> (correlation near 1) can use an index for a much larger share of the table.</p>
+<template data-db="planner" data-engine="pg">
+CREATE TABLE orders (id int PRIMARY KEY, customer_id int NOT NULL, status text NOT NULL,
+                     total numeric(10,2) NOT NULL, created_at timestamptz NOT NULL);
+INSERT INTO orders
+SELECT g, 1 + (g * 7919) % 5000,
+       CASE WHEN g % 100 = 0 THEN 'refunded' WHEN g % 10 = 0 THEN 'pending' ELSE 'shipped' END,
+       (g % 500) + 0.99, timestamptz '2026-01-01' + g * interval '1 minute'
+FROM generate_series(1, 100000) g;
+</template>
+<div class="lab sql" data-db="planner" id="c21-real">
+ <div class="t">Lab: the planner on real PostgreSQL</div>
+ <p class="hint">PostgreSQL 18 in your browser, with an <code>orders</code> table of 100,000 rows made by <code>generate_series</code> (smaller than the chapter's example). There are 5,000 customers with 20 orders each. <code>status</code> is 'shipped' for 90% of rows, 'pending' for 9% and 'refunded' for 1%. Click the presets in order. In each plan, compare the estimate (<code>rows=</code> in the <code>cost=</code> part) with the actual <code>rows=</code>, and watch which scan the planner picks.</p>
+ <p class="hint">Step 1 has no index and no statistics, so the estimate is a fixed default guess, far from the 20 real rows. Step 2 runs ANALYZE and shows what it stored. Steps 3 and 4 add an index, and the plan changes to a Bitmap Index Scan with a correct estimate. Step 5 asks for 90% of the table, and the planner keeps the Seq Scan although an index exists. Step 6 turns Seq Scans off for one transaction to force the index, and is usually slower. Step 7 asks for 1%, and the index wins. Step 8 adds 30,000 orders for customer 42 without ANALYZE, so the estimate stays near 20. Step 9 runs ANALYZE and the estimate is right again. The plan can stay the same, because the new rows sit together in a few pages. Times are from your machine and will vary. WebAssembly in a browser is slower than a native server.</p>
+ <template data-label="1. No index, no statistics">EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 42;</template>
+ <template data-label="2. ANALYZE, then read pg_stats">ANALYZE orders;
+SELECT attname, n_distinct, most_common_vals, most_common_freqs, correlation
+FROM pg_stats WHERE tablename = 'orders' AND attname IN ('customer_id', 'status');</template>
+ <template data-label="3. CREATE INDEX">CREATE INDEX orders_customer_id_idx ON orders (customer_id);
+CREATE INDEX orders_status_idx ON orders (status);</template>
+ <template data-label="4. Same query with the index">EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 42;</template>
+ <template data-label="5. 90% of rows: 'shipped'">EXPLAIN ANALYZE SELECT * FROM orders WHERE status = 'shipped';</template>
+ <template data-label="6. Force the index for 'shipped'">BEGIN;
+SET LOCAL enable_seqscan = off;
+EXPLAIN ANALYZE SELECT * FROM orders WHERE status = 'shipped';
+ROLLBACK;</template>
+ <template data-label="7. 1% of rows: 'refunded'">EXPLAIN ANALYZE SELECT * FROM orders WHERE status = 'refunded';</template>
+ <template data-label="8. Stale statistics">INSERT INTO orders
+SELECT g, 42, 'pending', 9.99, now() FROM generate_series(100001, 130000) g;
+EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 42;</template>
+ <template data-label="9. ANALYZE again">ANALYZE orders;
+EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 42;</template>
+ <textarea>EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 42;</textarea>
+</div>
 
 <h3>Startup cost, total cost and LIMIT</h3>
 <p>EXPLAIN prints <code>cost=startup..total</code>. The startup cost is the work before the first row comes out. A Seq Scan starts at 0. A Sort must read all its input before it can return anything, so its startup cost is almost its total cost. Usually the planner compares total costs. With <code>LIMIT</code>, or with a cursor, it compares the cost to get only the first rows. The Limit node's cost is <code>startup + (total - startup) × (rows wanted / rows expected)</code>.</p>
@@ -4036,6 +4130,23 @@ SHOW default_transaction_isolation;   -- 'read committed'</pre>
  <div id="c27-tup"></div>
 </div>
 <p>Things to try. In the lost update at Read Committed, B's <code>UPDATE</code> waits, then writes the stale 4. At Repeatable Read the same step fails with 40001. In the write skew at Repeatable Read, both commit and nobody is on call. At Serializable the second <code>COMMIT</code> fails. In the recheck scenario at Read Committed, B waits, the recheck fails, and the result is <code>DELETE 0</code>.</p>
+<div class="lab term" data-tool="psql" data-panes="2" id="c27-real-rr">
+ <div class="t">Lab: Repeatable Read and 40001 on real PostgreSQL</div>
+ <p class="hint">Two psql sessions on a real PostgreSQL 18 server in Docker. The table <code>c27_rr</code> has one lamp with <code>qty</code> = 5. Session 1 has <code>\set VERBOSITY verbose</code>, so psql prints the SQLSTATE code (and a LOCATION line from the server source). Click in this order. Session 1, step 1: it sees 5. Session 2, step 2: <code>UPDATE 1</code>, committed at once. Session 1, step 3: it still sees 5, because its snapshot is from step 1. Session 1, step 4: <code>ERROR:  40001: could not serialize access due to concurrent update</code>. Step 5: COMMIT prints ROLLBACK, because the transaction failed. Then click "Reset qty to 5" and do the same with step 1b (Read Committed). Step 3 now sees 4, and step 4 succeeds with <code>UPDATE 1</code>.</p>
+ <template class="setup">\set VERBOSITY verbose
+DROP TABLE IF EXISTS c27_rr;
+CREATE TABLE c27_rr (sku text PRIMARY KEY, qty int NOT NULL);
+INSERT INTO c27_rr VALUES ('lamp', 5);</template>
+ <template data-pane="1" data-label="1. BEGIN REPEATABLE READ + read">BEGIN ISOLATION LEVEL REPEATABLE READ;
+SELECT qty FROM c27_rr WHERE sku = 'lamp';</template>
+ <template data-pane="1" data-label="1b. BEGIN READ COMMITTED + read">BEGIN ISOLATION LEVEL READ COMMITTED;
+SELECT qty FROM c27_rr WHERE sku = 'lamp';</template>
+ <template data-pane="1" data-label="3. Read again">SELECT qty FROM c27_rr WHERE sku = 'lamp';</template>
+ <template data-pane="1" data-label="4. UPDATE the same row">UPDATE c27_rr SET qty = qty - 1 WHERE sku = 'lamp';</template>
+ <template data-pane="1" data-label="5. COMMIT">COMMIT;</template>
+ <template data-pane="1" data-label="Reset qty to 5">UPDATE c27_rr SET qty = 5;</template>
+ <template data-pane="2" data-label="2. UPDATE (autocommit)">UPDATE c27_rr SET qty = qty - 1 WHERE sku = 'lamp';</template>
+</div>
 
 <h3>Patterns for a production app</h3>
 <h4>Fixing the lost update</h4>
@@ -4067,6 +4178,31 @@ UPDATE products SET stock = 4, version = 2 WHERE id = 7 AND version = 1;        
  <div id="c27-lu-stats"></div>
 </div>
 <p>With the start stock at 1 and "read, then write", both customers get a lamp that exists only once. The shop oversells. Every fix sells exactly one lamp. The atomic update and <code>FOR UPDATE</code> pay with a wait. The version column and Serializable pay with a retry.</p>
+<div class="lab term" data-tool="psql" data-panes="2" id="c27-real-lu">
+ <div class="t">Lab: the lost update on real PostgreSQL</div>
+ <p class="hint">Two psql sessions on a real PostgreSQL 18 server in Docker, at Read Committed. The table <code>c27_lamp</code> has <code>stock</code> = 5. Each session plays the app: it reads the stock, then writes the value it read minus 1. The presets hold the value that the app would compute. First the lost update. Click step 1 in session 1, then step 1 in session 2 (both see 5). Click step 2 in session 1, then step 2 in session 2. Both write 4 and both commit. "Show stock" in session 1 gives 4, but two lamps were sold. Then click "Reset stock to 5" and use <code>FOR UPDATE</code>. Click step 3 in session 1 (it sees 5), then step 3 in session 2. After a second or so, session 2 shows "waiting…", because session 1 holds the row lock. Click step 4 in session 1. Session 2 wakes up and its SELECT returns 4. Click step 4 in session 2, which writes 3. "Show stock" gives 3.</p>
+ <template class="setup">DROP TABLE IF EXISTS c27_lamp;
+CREATE TABLE c27_lamp (sku text PRIMARY KEY, stock int NOT NULL);
+INSERT INTO c27_lamp VALUES ('lamp', 5);</template>
+ <template data-pane="1" data-label="1. BEGIN + SELECT">BEGIN;
+SELECT stock FROM c27_lamp WHERE sku = 'lamp';</template>
+ <template data-pane="1" data-label="2. UPDATE stock = 4 + COMMIT">UPDATE c27_lamp SET stock = 4 WHERE sku = 'lamp';
+COMMIT;</template>
+ <template data-pane="1" data-label="3. BEGIN + SELECT FOR UPDATE">BEGIN;
+SELECT stock FROM c27_lamp WHERE sku = 'lamp' FOR UPDATE;</template>
+ <template data-pane="1" data-label="4. UPDATE stock = 4 + COMMIT">UPDATE c27_lamp SET stock = 4 WHERE sku = 'lamp';
+COMMIT;</template>
+ <template data-pane="1" data-label="Show stock">SELECT stock FROM c27_lamp WHERE sku = 'lamp';</template>
+ <template data-pane="1" data-label="Reset stock to 5">UPDATE c27_lamp SET stock = 5;</template>
+ <template data-pane="2" data-label="1. BEGIN + SELECT">BEGIN;
+SELECT stock FROM c27_lamp WHERE sku = 'lamp';</template>
+ <template data-pane="2" data-label="2. UPDATE stock = 4 + COMMIT">UPDATE c27_lamp SET stock = 4 WHERE sku = 'lamp';
+COMMIT;</template>
+ <template data-pane="2" data-label="3. BEGIN + SELECT FOR UPDATE">BEGIN;
+SELECT stock FROM c27_lamp WHERE sku = 'lamp' FOR UPDATE;</template>
+ <template data-pane="2" data-label="4. UPDATE stock = 3 + COMMIT">UPDATE c27_lamp SET stock = 3 WHERE sku = 'lamp';
+COMMIT;</template>
+</div>
 
 <h4>"Check, then insert" needs a unique constraint</h4>
 <p>A signup handler that runs <code>SELECT 1 FROM customers WHERE email = $1</code> and inserts if nothing came back is a race at every level below Serializable. Two requests both see nothing and both insert. The only reliable guard is a unique index, because the index insert checks the key against all tuples, including uncommitted ones (the second insert waits for the first transaction, then fails with 23505 <code>unique_violation</code> if the first committed). Let the constraint decide:</p>
@@ -4269,6 +4405,33 @@ HINT:  See server log for query details.</pre>
  <div class="log" id="c28-dl-log" style="height:230px"></div>
 </div>
 <p>A small <code>deadlock_timeout</code> finds real deadlocks sooner but runs more useless checks. The docs suggest a value above your typical transaction time. In the same order case, B waits for A once, the check finds no cycle, and both commit.</p>
+<div class="lab term" data-tool="psql" data-panes="2" id="c28-real">
+ <div class="t">Lab: row locks and a deadlock on real PostgreSQL</div>
+ <p class="hint">Two psql sessions on a real PostgreSQL 18 server in Docker. The table <code>c28_products</code> has the lamp (id 7) and the shade (id 9). Both sessions use <code>\set VERBOSITY verbose</code>, so errors show their SQLSTATE code. First a row lock. Click step 1 in session 1, then step 2 in session 2. After a second or so, session 2 shows "waiting…". Step 3 in session 1 shows session 2's pid with <code>blocked_by</code> = session 1's pid and <code>wait_event</code> = <code>transactionid</code>. Click step 4 in session 1, and session 2 prints <code>UPDATE 1</code>.</p>
+ <p class="hint">Then the deadlock from the text. Click step 5 in session 1, step 6 in session 2, step 7 in session 2 (it waits for session 1), and step 8 in session 1 (it waits for session 2, so the cycle is closed). About 1 second later (<code>deadlock_timeout</code>), one session gets <code>ERROR:  40P01: deadlock detected</code> with the DETAIL lines, and the other one gets its <code>UPDATE 1</code>. Click ROLLBACK in both sessions to end the transactions.</p>
+ <template class="setup">\set VERBOSITY verbose
+DROP TABLE IF EXISTS c28_products;
+CREATE TABLE c28_products (id int PRIMARY KEY, name text NOT NULL, stock int NOT NULL);
+INSERT INTO c28_products VALUES (7, 'lamp', 10), (9, 'shade', 10);</template>
+ <template data-pane="1" data-label="1. BEGIN + UPDATE lamp">BEGIN;
+UPDATE c28_products SET stock = stock - 1 WHERE id = 7;</template>
+ <template data-pane="1" data-label="3. Who waits?">SELECT pg_backend_pid() AS me, pid, pg_blocking_pids(pid) AS blocked_by,
+       wait_event_type, wait_event, left(query, 50) AS query
+FROM pg_stat_activity
+WHERE datname = current_database() AND pid &lt;&gt; pg_backend_pid() AND state &lt;&gt; 'idle';</template>
+ <template data-pane="1" data-label="4. COMMIT">COMMIT;</template>
+ <template data-pane="1" data-label="5. BEGIN + UPDATE lamp">BEGIN;
+UPDATE c28_products SET stock = stock - 1 WHERE id = 7;</template>
+ <template data-pane="1" data-label="8. UPDATE shade">UPDATE c28_products SET stock = stock - 1 WHERE id = 9;</template>
+ <template data-pane="1" data-label="ROLLBACK">ROLLBACK;</template>
+ <template data-pane="2" data-label="2. UPDATE lamp">\set VERBOSITY verbose
+UPDATE c28_products SET stock = stock - 1 WHERE id = 7;</template>
+ <template data-pane="2" data-label="6. BEGIN + UPDATE shade">\set VERBOSITY verbose
+BEGIN;
+UPDATE c28_products SET stock = stock - 1 WHERE id = 9;</template>
+ <template data-pane="2" data-label="7. UPDATE lamp">UPDATE c28_products SET stock = stock - 1 WHERE id = 7;</template>
+ <template data-pane="2" data-label="ROLLBACK">ROLLBACK;</template>
+</div>
 
 <h3>How to see locks</h3>
 <pre>-- Who waits, and for whom:
@@ -8487,5 +8650,6 @@ Execution Time: 4310.492 ms`,v:'The outer scan is faster, but the estimate is st
  doSelect();
 })();
 </script>
+<script type="module" src="../runtime/lab.js"></script>
 </body>
 </html>
