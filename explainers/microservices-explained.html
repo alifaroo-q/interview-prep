@@ -137,6 +137,8 @@ input[type=range]{vertical-align:middle;width:160px}
 <p>It is not one app cut into many folders. Folders share one memory, one database connection and one crash. Separate programs share none of that. They can only talk by sending bytes across a network, and the network can be slow, lose messages, or fail. That one fact is the reason almost every tool in this guide exists.</p>
 <p>Most people find the single parts easy. A load balancer, a cache, a queue: each makes sense alone. The hard part is knowing <b>where each part sits</b>, <b>who owns which data</b>, and <b>what happens to one request</b> as it moves through all of them. Click <b>Next</b> to build the system one part at a time.</p>
 
+<p class="note">Some labs run real tools: an nginx gateway with Toxiproxy, Kafka, Redis and PostgreSQL. Their titles end in "on real nginx", "on real Kafka" and so on. They run in Docker and need the lab server: run <code>scripts/serve.sh --docker</code>, then open <code>http://127.0.0.1:8787/</code>. All other labs work offline.</p>
+
 <div class="build">
  <div class="stage col">
   <div class="n client" data-s="1">Internet<small>browsers, mobile apps</small></div>
@@ -438,6 +440,22 @@ input[type=range]{vertical-align:middle;width:160px}
  <div id="lb-stats"></div>
  <div class="log" id="lb-log" style="height:130px"></div>
 </div>
+<div class="lab term" data-tool="sh" id="lb-real">
+ <div class="t">Lab: round robin and a passive health check on real nginx</div>
+ <p class="hint">A shell in Docker, next to a real nginx gateway. nginx sends <code>/api/orders</code> to three copies of a small web server (orders-1, orders-2, orders-3) in turn. Between nginx and each copy sits Toxiproxy, so you can cut a copy off. nginx has no active health check here. It learns only from real requests: after 1 failed try (<code>max_fails=1</code>) it skips that copy for 10 seconds (<code>fail_timeout=10s</code>). That is a passive health check. Each output line is one request: the status, the time, the copies nginx tried, and the status from each copy.</p>
+ <p class="hint">Click "Send 6 requests". The copies take turns in a fixed order, such as orders-2, 1, 3, 2, 1, 3. Click "Kill orders-2" and send 6 again. One request tries orders-2 first and gets 502 (connection refused). nginx sends the same request to the next copy, so the client still gets 200. The other requests skip orders-2. Click "Bring orders-2 back". For up to 10 seconds nginx still skips it, then it gets its turn again. Now break it. Click "Kill all three", then "Send 6 requests": the first request tries all three copies, the others get 502 at once with <code>tried orders</code> (no live copy left, so nginx calls none). Click "Bring all back" and send again at once. nginx still answers 502 for up to 10 seconds, although every copy is up. Times are on your machine and will vary. Setup runs <code>POST /reset</code> on Toxiproxy, which turns all copies on and removes all faults.</p>
+ <template class="setup">curl -s -X POST toxiproxy:8474/reset</template>
+ <template data-label="Send 6 requests">for i in $(seq 1 6); do
+  curl -s -o /dev/null -w '%{http_code} in %{time_total}s  tried %header{x-upstream} -&gt; %header{x-upstream-status}\n' gateway/api/orders
+done | sed 's/[0-9.]*:2100/orders-/g'</template>
+ <template data-label="Kill orders-2">curl -s -X POST toxiproxy:8474/proxies/orders-2 -d '{"enabled":false}' | jq -c '{name, enabled}'</template>
+ <template data-label="Bring orders-2 back">curl -s -X POST toxiproxy:8474/proxies/orders-2 -d '{"enabled":true}' | jq -c '{name, enabled}'</template>
+ <template data-label="Kill all three">for p in 1 2 3; do
+  curl -s -X POST toxiproxy:8474/proxies/orders-$p -d '{"enabled":false}' | jq -c '{name, enabled}'
+done</template>
+ <template data-label="Bring all back">curl -s -X POST toxiproxy:8474/reset &amp;&amp; echo "all copies on, no faults"</template>
+ <template data-label="Show Toxiproxy state">curl -s toxiproxy:8474/proxies | jq -c '.[] | {name, enabled, toxics: [.toxics[].type]}'</template>
+</div>
 
 <h3>Load balancing happens at more than one level</h3>
 <p>People are often confused because they see "load balancer" in several places. That is correct. There is usually more than one layer, each with a different scope:</p>
@@ -512,6 +530,17 @@ input[type=range]{vertical-align:middle;width:160px}
  </div>
  <div id="gw-steps" class="col" style="align-items:stretch"></div>
 </div>
+<div class="lab term" data-tool="sh" id="gw-real">
+ <div class="t">Lab: routing on a real nginx gateway</div>
+ <p class="hint">A shell in Docker, next to the same nginx gateway. It has two routes: <code>/health</code>, which nginx answers itself, and <code>/api/orders</code>, which goes to the orders copies. The orders copies run <code>whoami</code>, a server that prints back the request it received. So you can see what the service gets after the gateway has changed it.</p>
+ <p class="hint">Click "What the service receives". The client asked for <code>/api/orders</code>, but the service got <code>GET /</code> with <code>Host: orders</code>. The gateway removed the route prefix and set the host to its upstream name. <code>RemoteAddr</code> is the hop just before the service (Toxiproxy), not the client. This gateway adds no <code>X-Forwarded-For</code>, so the client's address is lost. "Reply headers" shows the <code>X-Upstream</code> headers this gateway adds (<code>X-Upstream-Time</code> shows <code>-</code> on a good reply, because nginx writes the headers before the upstream reply is complete). "Unknown route" gets a 404 from nginx itself, with no <code>X-Upstream</code> header: no service was called. Then break it. "Prefix trap" asks for <code>/api/orders-admin</code>. The route is a plain prefix match, so this path also goes to the orders service, as <code>/-admin</code>. A route of <code>/api/orders/</code> with the slash would not match it. "Skip the gateway" calls orders-1 directly. It answers, because in this lab every container shares one Docker network. In production, the service has no public address, so only callers inside the private network can reach it.</p>
+ <template data-label="What the service receives">curl -s gateway/api/orders</template>
+ <template data-label="Reply headers">curl -s -D - -o /dev/null gateway/api/orders</template>
+ <template data-label="Route nginx answers itself">curl -s -i gateway/health</template>
+ <template data-label="Unknown route">curl -s -i gateway/api/payments | head -n 7</template>
+ <template data-label="Prefix trap">curl -s gateway/api/orders-admin | grep -E 'Hostname|GET'</template>
+ <template data-label="Skip the gateway">curl -s orders-1 | head -n 1</template>
+</div>
 
 <h3>Keep business logic out of the gateway</h3>
 <p>The gateway sits in front of everything, so it is tempting to add "just one small rule" there. Over time, the gateway turns into a huge service that every team must change. That is a new monolith at the front door.</p>
@@ -549,6 +578,15 @@ input[type=range]{vertical-align:middle;width:160px}
  <p class="hint">Two versions of Order Service call Inventory. One uses a hard-coded IP. One uses the name. Crash pods, scale, and call again.</p>
  <div class="bar"><button class="pri" id="sd-call">Both callers: call Inventory</button><button class="dan" id="sd-crash">Crash a pod</button><button id="sd-up">Scale up</button><button id="sd-down">Scale down</button></div>
  <div class="grid2"><div><h4>Registry: inventory-service</h4><div id="sd-pods" class="cells"></div></div><div><h4>Calls</h4><div class="log" id="sd-log" style="height:150px"></div></div></div>
+</div>
+<div class="lab term" data-tool="sh" id="sd-real">
+ <div class="t">Lab: name lookup on real Docker DNS</div>
+ <p class="hint">A shell in Docker. Docker runs a small DNS server for each network at <code>127.0.0.11</code>. It knows every container on the network by its service name, as the cluster DNS does in Kubernetes. Click "Look up the services": each name gives one private IP address. "Full DNS answer" shows the record, the server that answered (<code>127.0.0.11</code>) and its TTL (600 seconds). "What the gateway uses" shows the address nginx sends traffic to, and the address of <code>toxiproxy</code> now. They are the same. nginx looked up the name <code>toxiproxy</code> once, when it loaded its config, and keeps that IP. If the Toxiproxy container came back with a new IP, nginx would keep calling the old one until a reload. That is the hard-coded IP problem from above, hidden inside a config that shows a name. Then break it: "A name that does not exist" gets <code>NXDOMAIN</code>.</p>
+ <template data-label="Look up the services">for h in orders-1 orders-2 orders-3 toxiproxy gateway; do echo "$h -&gt; $(dig +short $h)"; done</template>
+ <template data-label="Full DNS answer">dig orders-2 | grep -E 'status|ANSWER SECTION|IN.A|SERVER'</template>
+ <template data-label="What the gateway uses">echo "nginx sent to: $(curl -s -o /dev/null -w '%header{x-upstream}' gateway/api/orders)"
+echo "toxiproxy is:  $(dig +short toxiproxy)"</template>
+ <template data-label="A name that does not exist">dig orders-4 | grep -E 'status|SERVER'</template>
 </div>
 
 <h3>How Kubernetes does it</h3>
@@ -611,6 +649,25 @@ input[type=range]{vertical-align:middle;width:160px}
  <div class="grid2"><div class="flip open" style="cursor:default"><b>What Order Service sees</b><div class="b" id="wf-sees" style="display:block"></div></div><div class="flip open" style="cursor:default"><b>What really happened</b><div class="b" id="wf-real" style="display:block"></div></div></div>
  <div class="note" id="wf-lesson" style="margin-top:10px"></div>
 </div>
+<div class="lab term" data-tool="sh" id="fail-real">
+ <div class="t">Lab: what the caller sees on real curl</div>
+ <p class="hint">A shell in Docker plays the caller. It calls orders-1 through Toxiproxy (<code>toxiproxy:21001</code>) with a 2 second timeout (<code>--max-time 2</code>). Each preset first resets Toxiproxy, then adds one fault, then makes the call. Watch the curl exit code and the time. "Healthy" gives HTTP 200 at once. "Connection refused" fails at once with exit code 7: nothing listens, so the request surely did not arrive. "Connection reset" fails at once with exit code 56. The connection was open, so the caller can't tell how far the request got. Then compare the last two. "Reply is slow" lets the request through, the server does the work, and only the reply is held for 5 seconds. "Request is lost" holds the request, so the server never sees it. Both end the same way: exit code 28 after 2 seconds. The caller can't tell them apart. That is why a retry after a timeout must be safe to repeat. "Clean up" removes the faults.</p>
+ <template data-label="Healthy">curl -s -X POST toxiproxy:8474/reset
+curl -sS -o /dev/null --max-time 2 -w 'HTTP %{http_code} after %{time_total}s\n' toxiproxy:21001; echo "curl exit code $?"</template>
+ <template data-label="Connection refused">curl -s -X POST toxiproxy:8474/reset
+curl -s -X POST toxiproxy:8474/proxies/orders-1 -d '{"enabled":false}' &gt;/dev/null
+curl -sS -o /dev/null --max-time 2 -w 'HTTP %{http_code} after %{time_total}s\n' toxiproxy:21001; echo "curl exit code $?"</template>
+ <template data-label="Connection reset">curl -s -X POST toxiproxy:8474/reset
+curl -s -X POST toxiproxy:8474/proxies/orders-1/toxics -d '{"type":"reset_peer","attributes":{"timeout":0}}' &gt;/dev/null
+curl -sS -o /dev/null --max-time 2 -w 'HTTP %{http_code} after %{time_total}s\n' toxiproxy:21001; echo "curl exit code $?"</template>
+ <template data-label="Reply is slow (work done)">curl -s -X POST toxiproxy:8474/reset
+curl -s -X POST toxiproxy:8474/proxies/orders-1/toxics -d '{"type":"latency","stream":"downstream","attributes":{"latency":5000}}' &gt;/dev/null
+curl -sS -o /dev/null --max-time 2 -w 'HTTP %{http_code} after %{time_total}s\n' toxiproxy:21001; echo "curl exit code $?"</template>
+ <template data-label="Request is lost (work not done)">curl -s -X POST toxiproxy:8474/reset
+curl -s -X POST toxiproxy:8474/proxies/orders-1/toxics -d '{"type":"timeout","stream":"upstream","attributes":{"timeout":0}}' &gt;/dev/null
+curl -sS -o /dev/null --max-time 2 -w 'HTTP %{http_code} after %{time_total}s\n' toxiproxy:21001; echo "curl exit code $?"</template>
+ <template data-label="Clean up">curl -s -X POST toxiproxy:8474/reset &amp;&amp; echo "no faults"</template>
+</div>
 <p>The hard case is the timeout. A timeout only tells you that <i>you stopped waiting</i>. It does not tell you whether the work was done. Your code has to be written so that the caller can safely try again without doing the work twice. That need drives the tools in the next chapter:</p>
 <table>
 <tr><th>Tool</th><th>Problem it answers</th></tr>
@@ -643,6 +700,36 @@ await fetch("http://payment-service/pay", { method: "POST", signal: AbortSignal.
  <button class="pri" id="to-run">Start</button><button id="to-stop">Stop</button></div>
  <div class="cells" id="to-slots" style="margin:10px 0"></div>
  <div id="to-stats"></div>
+</div>
+<div class="lab term" data-tool="sh" id="to-real">
+ <div class="t">Lab: timeouts and retries on real nginx</div>
+ <p class="hint">A shell in Docker, next to the nginx gateway from chapter 5. nginx waits at most 2 seconds for a copy (<code>proxy_read_timeout 2s</code>). On a timeout or a connection error it sends the same request to the next copy (<code>proxy_next_upstream error timeout</code>). Each output line is one request: the status, the time, the copies tried, and each copy's status.</p>
+ <p class="hint">Click "Make orders-2 slow", then "Send 4 requests". The request that lands on orders-2 shows <code>504, 200</code> and takes about 2 seconds: nginx gave up on orders-2, then retried on the next copy. The client got 200, but it waited the full timeout first. The next requests skip orders-2 for 10 seconds. Now break it. Click "Make all three slow", then "Send 1 request". It tries every copy that is not marked failed, 2 seconds each. You get 504 after about 6 seconds, or 502 after about 4 seconds if orders-2 is still marked failed from before (<code>tried orders-1, orders-3, orders</code>). Each retry added a full timeout. Click "Send 1 request" again: 502 at once, with <code>tried orders</code>. All copies are marked failed, so nginx fails fast for 10 seconds without calling them. That is close to an open circuit breaker. "Retry storm" sends 200 requests with no wait while the copies are marked failed: all fail, and none helps. Last, "Retry with backoff" removes the faults first, so the copies are healthy, but nginx still has them marked failed. The client waits 1, 2, 4, then 8 seconds, each plus a random part (jitter). It gets 200 at the first try after nginx's 10 seconds are over. How many tries that takes depends on how long ago the copies failed. Times are on your machine and will vary.</p>
+ <template class="setup">curl -s -X POST toxiproxy:8474/reset</template>
+ <template data-label="Make orders-2 slow (3 s)">curl -s -X POST toxiproxy:8474/proxies/orders-2/toxics -d '{"type":"latency","attributes":{"latency":3000}}' | jq -c '{name, type, attributes}'</template>
+ <template data-label="Send 4 requests">for i in $(seq 1 4); do
+  curl -s -o /dev/null -w '%{http_code} in %{time_total}s  tried %header{x-upstream} -&gt; %header{x-upstream-status}\n' gateway/api/orders
+done | sed 's/[0-9.]*:2100/orders-/g'</template>
+ <template data-label="Make all three slow">for p in 1 2 3; do
+  curl -s -X POST toxiproxy:8474/proxies/orders-$p/toxics -d '{"type":"latency","attributes":{"latency":3000}}' &gt;/dev/null
+done
+echo "orders-1, orders-2, orders-3: +3 s"</template>
+ <template data-label="Send 1 request">for i in $(seq 1 1); do
+  curl -s -o /dev/null -w '%{http_code} in %{time_total}s  tried %header{x-upstream} -&gt; %header{x-upstream-status}\n' gateway/api/orders
+done | sed 's/[0-9.]*:2100/orders-/g'</template>
+ <template data-label="Retry storm (no wait)">for i in $(seq 1 200); do curl -s -o /dev/null -w '%{http_code}\n' gateway/api/orders; done | sort | uniq -c</template>
+ <template data-label="Retry with backoff">curl -s -X POST toxiproxy:8474/reset
+wait=1
+for try in 1 2 3 4 5 6; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' gateway/api/orders)
+  echo "$(date +%T) try $try: HTTP $code"
+  [ "$code" = 200 ] &amp;&amp; break
+  pause="$wait.$((RANDOM % 10))"
+  echo "  wait $pause s"
+  sleep "$pause"
+  wait=$((wait * 2))
+done</template>
+ <template data-label="Clean up">curl -s -X POST toxiproxy:8474/reset &amp;&amp; echo "no faults"</template>
 </div>
 <p>A good timeout is a bit above the normal slow case. If Payment's 99th percentile (p99) is 400 ms, 1–2 s is sensible. Also, the timeouts along a chain must shrink as you go deeper. If the gateway waits 3 s, Order must give up on Payment well before that, or Order keeps working on an answer no one is waiting for.</p>
 
@@ -684,6 +771,22 @@ await fetch("http://payment-service/pay", { method: "POST", signal: AbortSignal.
  <p class="hint">Turn options on and off, then run the payment. Look at the ledger.</p>
  <div class="bar"><label><input type="checkbox" id="id-lost" checked> Reply to attempt 1 gets lost</label><label><input type="checkbox" id="id-retry" checked> Retries on</label><label><input type="checkbox" id="id-key"> Send Idempotency-Key</label><button class="pri" id="id-run">Pay $100</button><button id="id-reset">Clear ledger</button></div>
  <div class="grid2"><div class="log" id="id-log"></div><div><h4>Payment ledger</h4><div id="id-ledger"></div></div></div>
+</div>
+<div class="lab term" data-tool="redis" id="idem-real">
+ <div class="t">Lab: an idempotency key on real Redis</div>
+ <p class="hint">A redis-cli session on a real Redis 8 server in Docker. Payment Service keeps one key per intent, <code>c9:idem:O123-pay</code>, for 24 hours (<code>EX 86400</code>). <code>c9:charges:O123</code> is the money charged so far. <code>SET ... NX</code> writes the key only if it does not exist yet, in one step, so two copies of a request can't both win. Redis prints <code>OK</code> when the write happened, and an empty line (nil) when it did not.</p>
+ <p class="hint">Click "Attempt 1": <code>OK</code>, then the charge (100), then the result is saved on the key. The reply to the caller is lost, so it retries. Click "Retry with the same key": <code>SET NX</code> prints <code>(nil)</code>, so the service does not charge. It reads the stored result <code>done:ch_1</code> and sends that back. Click "Show state": charged is still 100, and the key has about 86,400 seconds left. Then break it. "Retry with no key" is a service that just charges again: 200. "Reset" clears both keys.</p>
+ <template class="setup">DEL c9:idem:O123-pay c9:charges:O123</template>
+ <template data-label="Attempt 1">SET c9:idem:O123-pay processing NX EX 86400
+INCRBY c9:charges:O123 100
+SET c9:idem:O123-pay done:ch_1 XX KEEPTTL</template>
+ <template data-label="Retry with the same key">SET c9:idem:O123-pay processing NX EX 86400
+GET c9:idem:O123-pay</template>
+ <template data-label="Show state">GET c9:charges:O123
+GET c9:idem:O123-pay
+TTL c9:idem:O123-pay</template>
+ <template data-label="Retry with no key">INCRBY c9:charges:O123 100</template>
+ <template data-label="Reset">DEL c9:idem:O123-pay c9:charges:O123</template>
 </div>
 
 <h3>Circuit breaker</h3>
@@ -769,6 +872,26 @@ await fetch("http://payment-service/pay", { method: "POST", signal: AbortSignal.
   <div><h4>Kafka topic "orders" (partition 0)</h4><div class="cells" id="kr-log"></div><div id="kr-g" style="margin-top:8px;font-size:14px"></div></div>
  </div>
 </div>
+<div class="lab term" data-tool="kafka" id="kafka-real">
+ <div class="t">Lab: partitions, keys and consumer groups on real Kafka</div>
+ <p class="hint">A shell in a real Kafka 4.1 container, with Kafka's own command line tools. Setup makes the topic <code>c10-orders</code> with 3 partitions. Each tool starts a Java program, so each click takes about 3 to 10 seconds. The pane shows "waiting…" until it is done. The events have keys: O1, O4 and O5 are order IDs. Kafka hashes the key to pick the partition, so every event of one order goes to one partition.</p>
+ <p class="hint">Click "Describe the topic": 3 partitions. "Produce 6 events", then "Shipping reads". Each line shows the partition, the offset (the position in that partition), the key and the value. All O1 events share one partition and come in order: created, paid, shipped. Events of different orders in different partitions can come in any order. "Offsets and lag" shows, per partition, how far group <code>c10-shipping</code> has read (CURRENT-OFFSET), the end of the log (LOG-END-OFFSET), and LAG, the events not read yet. Now 0. "Produce 2 more and check lag": LAG is 1 on two partitions, because Shipping has not read them. Then "Fraud reads from the start": a new group reads all 8 events, and Shipping's lag does not change. Reading did not delete anything. Last, "Replay Shipping": its offsets go back to 0, and "Shipping reads all again" gets all 8 events a second time. A replay like this is also how a consumer can see the same event twice.</p>
+ <template class="setup">kafka-topics.sh --bootstrap-server localhost:9092 --delete --if-exists --topic c10-orders
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --delete --group c10-shipping --group c10-fraud &gt;/dev/null 2&gt;&amp;1
+for i in $(seq 1 15); do kafka-topics.sh --bootstrap-server localhost:9092 --create --topic c10-orders --partitions 3 &gt;/dev/null 2&gt;&amp;1 &amp;&amp; break; sleep 1; done</template>
+ <template data-label="Describe the topic">kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic c10-orders | cut -f1-5</template>
+ <template data-label="Produce 6 events">printf 'O1:created\nO4:created\nO1:paid\nO5:created\nO4:paid\nO1:shipped\n' |
+  kafka-console-producer.sh --bootstrap-server localhost:9092 --topic c10-orders --property parse.key=true --property key.separator=:
+echo "sent 6 events"</template>
+ <template data-label="Shipping reads">kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic c10-orders --group c10-shipping --from-beginning --max-messages 6 --timeout-ms 15000 --property print.partition=true --property print.offset=true --property print.key=true</template>
+ <template data-label="Offsets and lag">kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group c10-shipping 2&gt;&amp;1 | cut -c1-90</template>
+ <template data-label="Produce 2 more and check lag">printf 'O4:shipped\nO5:paid\n' |
+  kafka-console-producer.sh --bootstrap-server localhost:9092 --topic c10-orders --property parse.key=true --property key.separator=:
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group c10-shipping 2&gt;&amp;1 | cut -c1-90</template>
+ <template data-label="Fraud reads from the start">kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic c10-orders --group c10-fraud --from-beginning --max-messages 8 --timeout-ms 15000 --property print.partition=true --property print.offset=true --property print.key=true</template>
+ <template data-label="Replay Shipping">kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group c10-shipping --topic c10-orders --reset-offsets --to-earliest --execute</template>
+ <template data-label="Shipping reads all again">kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic c10-orders --group c10-shipping --from-beginning --max-messages 8 --timeout-ms 15000 --property print.partition=true --property print.offset=true --property print.key=true</template>
+</div>
 <p>Kafka splits a topic into <b>partitions</b> to spread load over servers. Order is kept only <i>within</i> one partition. So you give each event a key (such as the order ID). Every event for order O123 lands in the same partition and is read in order.</p>
 <table>
 <tr><th>RabbitMQ</th><th>Kafka</th></tr>
@@ -839,6 +962,29 @@ await fetch("http://payment-service/pay", { method: "POST", signal: AbortSignal.
  <h4>Dead-letter queue</h4><div class="cells" id="wk-dlq"></div>
  <div id="wk-stats" style="margin-top:8px"></div>
 </div>
+<div class="lab term" data-tool="redis" id="wk-real">
+ <div class="t">Lab: workers, acks and a dead-letter queue on real Redis Streams</div>
+ <p class="hint">A redis-cli session on a real Redis 8 server in Docker. A Redis stream with a consumer group works as a job queue. <code>XREADGROUP</code> gives a job to one worker, and Redis records it in the group's pending list until the worker sends <code>XACK</code>. The output is plain: each value is on its own line. A job prints as its ID (such as <code>2-0</code>), then <code>video</code> and the video number. An <code>XPENDING</code> row prints 4 lines: job ID, worker, milliseconds since it was handed out, and how many times it was delivered.</p>
+ <p class="hint">Click "Add 3 jobs" once. Video 666 is a corrupt file. "w1 takes 2 jobs" gets jobs 1-0 and 2-0. "w1 acks job 1-0" prints 1. "Pending list" now shows only 2-0, held by w1, delivered 1 time. Say w1 crashed while it worked on 2-0. Wait 10 seconds, then click "w2 claims stuck jobs". w2 takes over 2-0, and the pending list shows 2 deliveries. The job was not lost, but it ran twice. That is at-least-once delivery. (Click before 10 seconds have passed and w2 claims nothing.) "w2 acks job 2-0" ends it. "w2 takes new jobs" gets 3-0, video 666. Now break it: video 666 fails every time. Click "666 fails again" twice, and its delivery count goes up each time. After 3 deliveries, "Move 666 to the DLQ" copies it to the stream <code>c11:dlq</code> and acks it, so the pending list is empty and the DLQ holds 1 job.</p>
+ <template class="setup">DEL c11:jobs c11:dlq
+XGROUP CREATE c11:jobs workers $ MKSTREAM</template>
+ <template data-label="Add 3 jobs">XADD c11:jobs 1-0 video 101
+XADD c11:jobs 2-0 video 102
+XADD c11:jobs 3-0 video 666</template>
+ <template data-label="w1 takes 2 jobs">XREADGROUP GROUP workers w1 COUNT 2 STREAMS c11:jobs &gt;</template>
+ <template data-label="w1 acks job 1-0">XACK c11:jobs workers 1-0</template>
+ <template data-label="Pending list">XPENDING c11:jobs workers - + 10</template>
+ <template data-label="w2 claims stuck jobs (idle 10 s)">XAUTOCLAIM c11:jobs workers w2 10000 0-0
+XPENDING c11:jobs workers - + 10</template>
+ <template data-label="w2 acks job 2-0">XACK c11:jobs workers 2-0</template>
+ <template data-label="w2 takes new jobs">XREADGROUP GROUP workers w2 COUNT 10 STREAMS c11:jobs &gt;</template>
+ <template data-label="666 fails again">XCLAIM c11:jobs workers w2 0 3-0
+XPENDING c11:jobs workers - + 10</template>
+ <template data-label="Move 666 to the DLQ">XADD c11:dlq * video 666 job 3-0
+XACK c11:jobs workers 3-0
+XPENDING c11:jobs workers - + 10
+XLEN c11:dlq</template>
+</div>
 <button class="done-btn">Mark chapter as read</button>
 </section>
 
@@ -887,6 +1033,25 @@ await fetch("http://payment-service/pay", { method: "POST", signal: AbortSignal.
  <div class="bar"><button class="pri" id="ca-get">GET /products/P123</button><button id="ca-upd">Admin: price +$20</button><label><input type="checkbox" id="ca-inv"> Delete cache on update</label></div>
  <div class="grid2"><div class="kv" id="ca-state"></div><div class="log" id="ca-log" style="height:160px"></div></div>
  <div id="ca-stats"></div>
+</div>
+<div class="lab term" data-tool="redis" id="cache-real">
+ <div class="t">Lab: cache-aside, a refill lock and a rate limit on real Redis</div>
+ <p class="hint">A redis-cli session on a real Redis 8 server in Docker. You type the commands that the <code>getProduct</code> code above sends. Redis prints a missing value as <code>(nil)</code>. <code>TTL</code> prints the seconds left, -1 for a key with no expiry, and -2 for a key that does not exist.</p>
+ <p class="hint">Click "Look up P123": <code>EXISTS</code> is 0 and <code>TTL</code> is -2, a miss. The app now reads the database and clicks "Save the DB row for 20 s". Click "Look up P123" again: a hit, and the TTL counts down. Wait 20 seconds and look up again: Redis deleted the key by itself, so the next read is a miss. "Admin update: delete the key" is delete on write. Then the stampede. When a hot key expires, every request misses at the same time. "Two misses at once" has request A and request B both try to take a short lock with <code>SET NX PX 5000</code>. A gets <code>OK</code> and refills the cache. B gets nil, so it waits and reads the cache again instead of the database. The lock frees itself after 5 seconds, even if A crashes. Last, the rate limit counter from the gateway chapter: click "User 42 sends a request" 6 times. <code>INCR</code> counts, and <code>EXPIRE ... NX</code> starts a 10 second window only on the first request. With a limit of 5, the 6th request is rejected. After 10 seconds the key is gone and the count starts again.</p>
+ <template class="setup">DEL c12:product:P123 c12:lock:P123 c12:rl:u42</template>
+ <template data-label="Look up P123">EXISTS c12:product:P123
+GET c12:product:P123
+TTL c12:product:P123</template>
+ <template data-label="Save the DB row for 20 s">SET c12:product:P123 '{"id":"P123","price":100}' EX 20
+TTL c12:product:P123</template>
+ <template data-label="Admin update: delete the key">DEL c12:product:P123</template>
+ <template data-label="Two misses at once">SET c12:lock:P123 request-A NX PX 5000
+SET c12:lock:P123 request-B NX PX 5000
+GET c12:lock:P123
+PTTL c12:lock:P123</template>
+ <template data-label="User 42 sends a request">INCR c12:rl:u42
+EXPIRE c12:rl:u42 10 NX
+TTL c12:rl:u42</template>
 </div>
 <p>Common strategies, from simplest:</p>
 <ul>
@@ -986,6 +1151,47 @@ await kafka.send("OrderCreated", order);      // write 2</pre>
   <div><h4>Kafka topic → Shipping (dedupes by event ID)</h4><pre id="ob-k" style="min-height:90px"></pre></div>
  </div>
  <div class="note" id="ob-verdict">Run a scenario.</div>
+</div>
+<div class="lab term" data-tool="psql" data-panes="2" id="ob-real">
+ <div class="t">Lab: the outbox and two relays on real PostgreSQL</div>
+ <p class="hint">Two psql sessions on a real PostgreSQL 18 server in Docker. Session 1 is Order Service and relay A. Session 2 is relay B. The tables are <code>c14_orders</code> and <code>c14_outbox</code>. A relay claims unsent rows with <code>FOR UPDATE SKIP LOCKED</code>, marks them sent, sends them to Kafka (not shown), and only then commits. <code>SKIP LOCKED</code> makes a relay pass over rows that another relay has locked, so two relays never send the same row at the same time.</p>
+ <p class="hint">In session 1, click "Place order O1", then "Place orders O2 to O5", then "Show the outbox": 5 rows, none sent. Each order row and its outbox row were saved in one transaction. Click "Crash before COMMIT": order O9 and its event are both missing, never one without the other. Click "Place orders O2 to O5" a second time. The order IDs exist, so the first INSERT fails, and COMMIT prints ROLLBACK: no outbox row was added either. Now the relays. Relay A: "Claim 2 rows" gets ids 1 and 2. Relay B: "Claim 2 rows" gets 3 and 4. It did not wait, and it did not take A's rows. Relay A: "Crash (ROLLBACK)". Relay B: "COMMIT". "Show the outbox": 3 and 4 are sent, and 1 and 2 are unsent again, so the next claim sends them. If A had sent them to Kafka before it crashed, they go out twice. That is why the outbox gives at-least-once delivery. Then break it. Relay A: "Claim 2 rows". Relay B: "Claim without SKIP LOCKED". After a second or so, B shows "waiting…": it waits for A's locks. Relay A: "COMMIT". B wakes up. It skips the rows that A sent, and gets only what is left (row 5). While A held its locks, B did no work at all: two relays without <code>SKIP LOCKED</code> run one after the other.</p>
+ <template class="setup">DROP TABLE IF EXISTS c14_outbox, c14_orders;
+CREATE TABLE c14_orders (id text PRIMARY KEY, status text NOT NULL);
+CREATE TABLE c14_outbox (id bigserial PRIMARY KEY, event_type text NOT NULL, order_id text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(), sent_at timestamptz);</template>
+ <template data-pane="1" data-label="Place order O1">BEGIN;
+INSERT INTO c14_orders VALUES ('O1', 'PAID');
+INSERT INTO c14_outbox (event_type, order_id) VALUES ('OrderPaid', 'O1');
+COMMIT;</template>
+ <template data-pane="1" data-label="Place orders O2 to O5">BEGIN;
+INSERT INTO c14_orders SELECT 'O' || g, 'PAID' FROM generate_series(2, 5) g;
+INSERT INTO c14_outbox (event_type, order_id) SELECT 'OrderPaid', 'O' || g FROM generate_series(2, 5) g;
+COMMIT;</template>
+ <template data-pane="1" data-label="Crash before COMMIT">BEGIN;
+INSERT INTO c14_orders VALUES ('O9', 'PAID');
+INSERT INTO c14_outbox (event_type, order_id) VALUES ('OrderPaid', 'O9');
+ROLLBACK;
+SELECT (SELECT count(*) FROM c14_orders WHERE id = 'O9') AS order_o9,
+       (SELECT count(*) FROM c14_outbox WHERE order_id = 'O9') AS event_o9;</template>
+ <template data-pane="1" data-label="Show the outbox">SELECT id, event_type, order_id, sent_at IS NOT NULL AS sent FROM c14_outbox ORDER BY id;</template>
+ <template data-pane="1" data-label="Relay A: Claim 2 rows">BEGIN;
+WITH batch AS (SELECT id FROM c14_outbox WHERE sent_at IS NULL ORDER BY id LIMIT 2 FOR UPDATE SKIP LOCKED)
+UPDATE c14_outbox o SET sent_at = now() FROM batch WHERE o.id = batch.id
+RETURNING o.id, o.event_type, o.order_id;</template>
+ <template data-pane="1" data-label="Relay A: COMMIT">COMMIT;</template>
+ <template data-pane="1" data-label="Relay A: Crash (ROLLBACK)">ROLLBACK;</template>
+ <template data-pane="2" data-label="Relay B: Claim 2 rows">BEGIN;
+WITH batch AS (SELECT id FROM c14_outbox WHERE sent_at IS NULL ORDER BY id LIMIT 2 FOR UPDATE SKIP LOCKED)
+UPDATE c14_outbox o SET sent_at = now() FROM batch WHERE o.id = batch.id
+RETURNING o.id, o.event_type, o.order_id;</template>
+ <template data-pane="2" data-label="Relay B: Claim without SKIP LOCKED">BEGIN;
+WITH batch AS (SELECT id FROM c14_outbox WHERE sent_at IS NULL ORDER BY id LIMIT 2 FOR UPDATE)
+UPDATE c14_outbox o SET sent_at = now() FROM batch WHERE o.id = batch.id
+RETURNING o.id, o.event_type, o.order_id;</template>
+ <template data-pane="2" data-label="Relay B: COMMIT">COMMIT;</template>
+ <template data-pane="2" data-label="Relay B: ROLLBACK">ROLLBACK;</template>
+ <template data-pane="2" data-label="Show the outbox">SELECT id, event_type, order_id, sent_at IS NOT NULL AS sent FROM c14_outbox ORDER BY id;</template>
 </div>
 
 <h3>Why not one transaction across all databases?</h3>
@@ -1207,6 +1413,13 @@ message User {
  <div id="tr-metrics"></div>
  <div id="tr-wf" class="wfwrap" style="margin:10px 0"></div>
  <div class="log" id="tr-log" style="height:120px"></div>
+</div>
+<div class="lab term" data-tool="sh" id="rid-real">
+ <div class="t">Lab: a request ID through a real nginx gateway</div>
+ <p class="hint">A shell in Docker, next to the nginx gateway. The orders copies print back every header they receive, so you can see which headers made it through. Click "Send a request ID": the service received <code>X-Request-Id: 7f21ab</code>. The gateway passed the header on as it was. Click "Send a W3C traceparent": the OpenTelemetry header also arrives unchanged. Then break it. "Send no ID" shows that the service got no ID at all. This gateway passes IDs on but does not create one, so a request from a client without an ID has no trail. nginx can create one from its <code>$request_id</code> variable, but this gateway is not set up to do it.</p>
+ <template data-label="Send a request ID">curl -s -H 'X-Request-ID: 7f21ab' gateway/api/orders | grep -i -E 'Hostname|request-id'</template>
+ <template data-label="Send a W3C traceparent">curl -s -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' gateway/api/orders | grep -i -E 'Hostname|traceparent'</template>
+ <template data-label="Send no ID">curl -s gateway/api/orders | grep -i -E 'Hostname|request-id|traceparent'</template>
 </div>
 <p>Tools: OpenTelemetry to instrument code; Prometheus and Grafana for metrics and dashboards; Jaeger or Tempo for traces; Datadog and New Relic as all-in-one paid options.</p>
 <button class="done-btn">Mark chapter as read</button>
@@ -1945,5 +2158,6 @@ $$('.build').forEach(b=>{
  $('#path').innerHTML=P.map((p,i)=>`<a href="#${p[1]}" class="n ${i<10?'svc':'plat'}" style="text-decoration:none;text-align:left">${i+1}. ${p[0]}</a>${i<P.length-1?'<div class="ar">↓</div>':''}`).join('');
 })();
 </script>
+<script type="module" src="../runtime/lab.js"></script>
 </body>
 </html>
