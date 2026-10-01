@@ -168,6 +168,31 @@ input[type=range]{vertical-align:middle;width:160px}
  <div class="log" id="ex-log"></div>
 </div>
 
+<!-- Real engine, tier 1: declare a database once per page, then point consoles at it by name.
+     data-engine: pg (PostgreSQL 18 via PGlite) or sqlite (sql.js). data-ext: PGlite contrib extensions, comma separated. -->
+<template data-db="example" data-engine="pg" data-ext="pageinspect">
+CREATE TABLE accounts (id int PRIMARY KEY, owner text NOT NULL, balance numeric NOT NULL);
+INSERT INTO accounts VALUES (1, 'ana', 100), (2, 'chen', 50);
+</template>
+<div class="lab sql" data-db="example">
+ <div class="t">Lab: example real PostgreSQL console</div>
+ <p class="hint">This is real PostgreSQL running in your browser. Change the query and press Ctrl+Enter. Watch the <code>t_xmax</code> column after the UPDATE.</p>
+ <template data-label="1. Heap page">SELECT lp, t_xmin, t_xmax, t_ctid FROM heap_page_items(get_raw_page('accounts', 0));</template>
+ <template data-label="2. UPDATE a row">UPDATE accounts SET balance = balance - 10 WHERE id = 1;</template>
+ <textarea>SELECT * FROM accounts;</textarea>
+</div>
+
+<!-- Real tool, tier 2: needs scripts/serve.sh --docker. data-tool: psql, redis, dig, curl. data-panes: separate sessions side by side.
+     <template class="setup"> runs once in session 1. <template data-pane="n" data-label="..."> are preset inputs for pane n. -->
+<div class="lab term" data-tool="psql" data-panes="2">
+ <div class="t">Lab: example two real sessions</div>
+ <p class="hint">Two connections to a real PostgreSQL server. Run session 1's steps, then session 2's UPDATE, and see it wait for the lock.</p>
+ <template class="setup">DROP TABLE IF EXISTS accounts; CREATE TABLE accounts (id int PRIMARY KEY, balance int); INSERT INTO accounts VALUES (1, 100);</template>
+ <template data-pane="1" data-label="BEGIN + UPDATE">BEGIN; UPDATE accounts SET balance = balance - 10 WHERE id = 1;</template>
+ <template data-pane="1" data-label="COMMIT">COMMIT;</template>
+ <template data-pane="2" data-label="UPDATE same row">UPDATE accounts SET balance = balance + 5 WHERE id = 1;</template>
+</div>
+
 <table>
 <tr><th>Node class</th><th>Use for</th></tr>
 <tr><td><code>n client</code></td><td>users, browsers, devices</td></tr>
@@ -215,5 +240,6 @@ $$('.build').forEach(b=>{
   $('#ex-fail').checked?log(lg,'✗ Service A timed out','bad'):log(lg,'✓ 200 OK','ok');};
 })();
 </script>
+<script type="module" src="../runtime/lab.js"></script>
 </body>
 </html>

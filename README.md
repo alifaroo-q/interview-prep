@@ -1,6 +1,15 @@
 # Interview prep: interactive explainers
 
-Visual, hands-on explanations of system design topics. Each explainer is one HTML file. Open it in a browser. It needs no install and no internet.
+Visual, hands-on explanations of system design topics. Each explainer is one HTML file. Some labs run real engines: PostgreSQL and SQLite in your browser, and psql, Redis, `dig` and `curl` in Docker.
+
+## Open the explainers
+
+```
+scripts/serve.sh            # real browser labs (PostgreSQL, SQLite). First run fetches the engines (about 20 MB).
+scripts/serve.sh --docker   # also real server labs: two psql sessions, Redis, dig, curl
+```
+
+Then open http://127.0.0.1:8787/. Needs Node, and Docker for `--docker`. After the first run, everything works offline except `dig` and `curl` to real hosts. Opened by double-click, an explainer still shows its diagrams and model labs, but not the real labs.
 
 ## Explainers
 
@@ -37,8 +46,12 @@ To give your own notes as input, put a Markdown file in `notes/` and name it in 
 ```
 explainers/        one self-contained HTML file per topic
 notes/             source notes that explainers are built from
-template.html      starting point: page shell, styles, diagram and lab helpers
-scripts/check.sh   static checks for every explainer
+template.html      starting point: page shell, styles, diagram and lab helpers, real-lab examples
+runtime/lab.js     real-lab runtime: PGlite and sql.js consoles, Docker tool sessions
+runtime/vendor/    WASM engines, fetched by scripts/vendor.sh (not in git)
+lab/               lab server (serves the pages, runs tools in Docker) and its compose file
+scripts/serve.sh   start the lab server; --docker also starts the Docker services
+scripts/check.sh   static checks, plus a real run of every browser-lab query
 CLAUDE.md          rules for writing explainers (language, sources, diagrams, labs, checks)
 .claude/commands/  the /new-explainer command
 ```
@@ -50,4 +63,4 @@ scripts/check.sh                      # all explainers
 scripts/check.sh explainers/dns-explained.html
 ```
 
-It checks JS syntax, leftover template placeholders, em dashes, script ids with no element, and that every chapter has a "Mark as read" button. It does not click the labs. Test those in a browser.
+It checks JS syntax, leftover template placeholders, em dashes, script ids with no element, that every chapter has a "Mark as read" button, and real-lab wiring. It also runs every browser-lab query on the real engine in Node. It does not click the labs or run the Docker labs. Test those in a browser.

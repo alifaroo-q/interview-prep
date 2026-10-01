@@ -1,0 +1,40 @@
+# Tier 2 lab services. The lab server reaches them with `docker exec`, so no ports are published.
+# Inside this network, services call each other by service name (gateway, orders-1, toxiproxy, kafka, ...).
+name: explainer-lab
+services:
+  pg:
+    image: postgres:18
+    container_name: xp-pg
+    environment: { POSTGRES_PASSWORD: lab, POSTGRES_DB: lab }
+    tmpfs: [/var/lib/postgresql]
+    healthcheck: { test: [CMD, pg_isready, -U, postgres, -d, lab], interval: 1s, retries: 30 }
+  redis:
+    image: redis:8-alpine
+    container_name: xp-redis
+  tools:
+    # dig, curl, and an Unbound caching resolver on 127.0.0.1 with a local acmeshop.test zone.
+    image: alpine:3.22
+    container_name: xp-tools
+    volumes: [./unbound.conf:/etc/unbound/lab.conf:ro]
+    command: sh -c "apk add --no-cache bind-tools curl jq unbound >/dev/null && unbound -c /etc/unbound/lab.conf && touch /ready && sleep infinity"
+    healthcheck: { test: [CMD, test, -f, /ready], interval: 1s, retries: 90 }
+  kafka:
+    image: apache/kafka:4.1.0
+    container_name: xp-kafka
+    healthcheck: { test: [CMD-SHELL, "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"], interval: 3s, retries: 40 }
+  orders-1: &orders
+    image: traefik/whoami:v1.11
+    hostname: orders-1
+  orders-2: { <<: *orders, hostname: orders-2 }
+  orders-3: { <<: *orders, hostname: orders-3 }
+  toxiproxy:
+    # Sits between the gateway and each orders replica, so labs can add latency or cut a replica off.
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    container_name: xp-toxiproxy
+    volumes: [./toxiproxy.json:/config/toxiproxy.json:ro]
+    command: [-host=0.0.0.0, -config=/config/toxiproxy.json]
+  gateway:
+    image: nginx:alpine
+    container_name: xp-gateway
+    volumes: [./nginx.conf:/etc/nginx/nginx.conf:ro]
+    depends_on: [toxiproxy]

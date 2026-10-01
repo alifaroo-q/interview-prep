@@ -1,0 +1,5 @@
+[
+  { "name": "orders-1", "listen": "0.0.0.0:21001", "upstream": "orders-1:80", "enabled": true },
+  { "name": "orders-2", "listen": "0.0.0.0:21002", "upstream": "orders-2:80", "enabled": true },
+  { "name": "orders-3", "listen": "0.0.0.0:21003", "upstream": "orders-3:80", "enabled": true }
+]
