@@ -143,6 +143,7 @@ input[type=range]{vertical-align:middle;width:160px}
 <h2>1. What DNS is</h2>
 <div class="topics">Sources: Cloudflare Learning Center "What is DNS?", RFC 1034 / 1035</div>
 <p class="lead">DNS (the Domain Name System) is a worldwide, distributed database that turns names people can read, like <code>www.cloudflare.com</code>, into the data computers need, most often an IP address like <code>104.16.124.96</code>.</p>
+<p class="note">Labs titled "with real dig" run real DNS tools in Docker: <code>dig</code>, <code>curl</code> and an Unbound recursive resolver at 127.0.0.1 that resolves from the real root servers. They need the page opened through the lab server with <code>scripts/serve.sh --docker</code>, then <code>http://127.0.0.1:8787/</code>. All other labs work offline. Real answers change over time, so your IPs, TTLs and times will differ from the examples in the hints. The lab container has no IPv6 route, so presets that name a server add <code>-4</code> (use IPv4 only).</p>
 <p>Computers find each other by IP address. People remember names. DNS sits between the two. Every time you open a website, send an email or call an API, a DNS lookup happens first. Usually it takes a few milliseconds because the answer is already stored nearby. When it is not, the lookup walks a chain of servers across the world.</p>
 <p>No single company runs DNS. The database is split into pieces called <b>zones</b>. Each zone is run by whoever owns it. ICANN coordinates the top. Verisign runs <code>.com</code>. You run <code>yoursite.com</code>. A lookup follows pointers from one owner to the next until it reaches the one who knows the answer.</p>
 <div class="build">
@@ -263,6 +264,14 @@ input[type=range]{vertical-align:middle;width:160px}
  <p id="sim-text"></p>
  <div class="pkt" id="sim-pkt"></div>
 </div>
+<div class="lab term" data-tool="sh" id="real-trace">
+ <div class="t">Lab: the full lookup with real dig +trace</div>
+ <p class="hint">A shell in Docker with <code>dig</code> and a real Unbound resolver at 127.0.0.1. <code>dig +trace</code> does the resolver's work itself. It asks 127.0.0.1 only for the list of root servers. Then it sends iterative queries: a root server, a <code>.com</code> server, then the domain's own nameserver. The presets keep 2 NS lines per step so the output stays short. Click "1. Trace example.com". You see four blocks. Each block ends with a <code>;; Received</code> line that names the server that answered and the time it took. The root refers you to the <code>com.</code> servers (TTL 172800, 2 days). A <code>.com</code> server refers you to the example.com nameservers. Only the last server gives A records. Click it again: dig picks other root and <code>.com</code> servers, and the times change. Then click "2. Trace a name that does not exist". The walk stops at <code>.com</code>. It has no delegation for that name, so it answers with its SOA record instead of a referral, and the status is NXDOMAIN. Your IPs, server letters and times will differ.</p>
+ <template data-label="1. Trace example.com">dig +trace +nodnssec @127.0.0.1 example.com | awk '/^;; Received/ || (!/^;/ &amp;&amp; NF &amp;&amp; ($4 != "NS" || ++n[$1] &lt;= 2))'</template>
+ <template data-label="2. Trace a name that does not exist">dig +trace +nodnssec @127.0.0.1 no-such-name-lab-7781.com | awk '/^;; Received/ || (!/^;/ &amp;&amp; NF &amp;&amp; ($4 != "NS" || ++n[$1] &lt;= 2))'
+dig @127.0.0.1 no-such-name-lab-7781.com | grep status</template>
+ <template data-label="3. Trace a CNAME (www.github.com)">dig +trace +nodnssec @127.0.0.1 www.github.com | awk '/^;; Received/ || (!/^;/ &amp;&amp; NF &amp;&amp; ($4 != "NS" || ++n[$1] &lt;= 2))'</template>
+</div>
 <p>A few things this shows.</p>
 <ul>
 <li>The resolver sends the <b>full name</b> to every server, even the root. The root only reads the last label, but sending the full name is how DNS was designed. (Modern resolvers can send less, see <i>QNAME minimisation</i> in chapter 13.)</li>
@@ -307,6 +316,19 @@ input[type=range]{vertical-align:middle;width:160px}
  <div class="log" id="gl-log" style="height:170px"></div>
 </div>
 <p>Glue is only needed when the nameserver's name is inside the zone it serves ("in-bailiwick"). If your nameservers are <code>ns1.dnsprovider.net</code>, the resolver just looks that name up separately. That costs an extra lookup, but no loop. You set glue at your registrar, usually on a page called "child nameservers" or "host records".</p>
+<div class="lab term" data-tool="sh" id="real-walk">
+ <div class="t">Lab: walk the referrals by hand with real dig</div>
+ <p class="hint">Now you are the resolver. Every preset sends an iterative query (<code>+norecurse</code>, so RD=0) to one real server. <code>brief</code> is a small shell function in this lab. It prints the status, the flags and the first 4 lines of each section. Click 1, 2 and 3 in order. Step 1 asks a root server for <code>example.com</code>. The status is NOERROR, but ANSWER is 0 and the flags have no <code>aa</code>. The AUTHORITY section holds the <code>.com</code> NS records, and the ADDITIONAL section holds their IPs. That is a referral. Step 2 asks a <code>.com</code> server. Another referral, to the example.com nameservers, again with their IPs in ADDITIONAL. Step 3 asks one of those nameservers (the preset gets its name from the resolver). Now the flags have <code>aa</code> and the ANSWER section has the A records. Step 4 shows glue that is required: google.com's nameservers are <code>ns1.google.com</code> and others, inside the zone they serve. Look for their A records in ADDITIONAL. To break it, click 5: a recursive query (RD=1) to a root server. The root does not recurse. The flags have no <code>ra</code>, dig prints "recursion requested but not available", and you still get only the referral. Click 6: ask example.com's nameserver about google.com. It is not authoritative for that zone and does not recurse, so it says REFUSED.</p>
+ <template class="setup">brief() { awk '/^;; ->>HEADER/ {sub(/.*status: /, "status: "); print; next} /^;; flags/ {print; next} /^;; [A-Z]+ SECTION:/ {s=$2; c=0; if (s != "QUESTION") print; next} /^$/ {if (c &gt; 4) print "   (" c-4 " more)"; s=""; c=0; next} s != "" &amp;&amp; s != "QUESTION" &amp;&amp; !/^;/ {if (++c &lt;= 4) print}'; }</template>
+ <template data-label="1. Ask a root server">dig -4 +norecurse @a.root-servers.net example.com | brief</template>
+ <template data-label="2. Ask a .com server">dig -4 +norecurse @a.gtld-servers.net example.com | brief</template>
+ <template data-label="3. Ask the authoritative server">NS=$(dig @127.0.0.1 +short example.com NS | head -1); echo "asking $NS"
+dig -4 +norecurse @$NS example.com | brief</template>
+ <template data-label="4. Glue: .com refers to ns1.google.com">dig -4 +norecurse @a.gtld-servers.net google.com | brief</template>
+ <template data-label="5. Break it: ask a root to recurse">dig -4 @a.root-servers.net example.com | grep -E 'status|^;; flags|WARNING'</template>
+ <template data-label="6. Break it: ask the wrong authoritative server">NS=$(dig @127.0.0.1 +short example.com NS | head -1); echo "asking $NS about google.com"
+dig -4 @$NS google.com | grep -E 'status|^;; flags'</template>
+</div>
 <button class="done-btn">Mark chapter as read</button>
 </section>
 
@@ -343,6 +365,16 @@ input[type=range]{vertical-align:middle;width:160px}
  <div class="bar"><label>TTL <select id="pp-ttl"><option value="3600">3600 s (1 hour)</option><option value="300">300 s (5 min)</option><option value="86400">86400 s (1 day)</option></select></label><button id="pp-new">New random cache times</button></div>
  <div class="bar"><label>Time since change: <input type="range" id="pp-t" min="0" max="100" value="0" style="width:320px"> <b id="pp-tv"></b></label></div>
  <div id="pp-view"></div>
+</div>
+<div class="lab term" data-tool="sh" id="real-cache">
+ <div class="t">Lab: watch a real resolver cache with real dig</div>
+ <p class="hint">The Unbound resolver at 127.0.0.1 keeps a real cache. <code>unbound-control -c /etc/unbound/lab.conf</code> lets you look inside it. Click 1 to remove wikipedia.org from the cache. Click 2. On a cold cache the Query time is hundreds of milliseconds, because Unbound walks the tree. Click 2 again a few seconds later. The Query time is now 0 or 1 msec, and the TTL is lower by the seconds that passed. That is the cache counting down. Click 3 to see the cache entries: the A record, the NS records for wikipedia.org, and the <code>org.</code> NS records. That cached referral is why most lookups never reach a root server. To break it, click 4 twice. The name does not exist. The first reply is NXDOMAIN with the zone's SOA in AUTHORITY. The last SOA field (3600 for wikipedia.org when checked) is how long Unbound remembers "no such name". The second reply comes from the cache in about 0 msec. Click 5 to find the negative entry: a <code>msg</code> line, where the third number is its remaining TTL. Click 6 to flush the whole wikipedia.org zone from the cache, then click 2 again: slow again. Your TTLs and times will differ.</p>
+ <template data-label="1. Flush wikipedia.org">unbound-control -c /etc/unbound/lab.conf flush wikipedia.org</template>
+ <template data-label="2. Ask for wikipedia.org (click 2 or 3 times)">dig @127.0.0.1 wikipedia.org | grep -E '^wikipedia|Query time'</template>
+ <template data-label="3. Show the cache entries">unbound-control -c /etc/unbound/lab.conf dump_cache | grep -E '^(wikipedia\.org|org)\.[[:space:]]' | grep -v RRSIG</template>
+ <template data-label="4. Break it: ask a name that does not exist (click twice)">dig @127.0.0.1 nope-lab-404.wikipedia.org | grep -E 'status|SOA|Query time'</template>
+ <template data-label="5. Show the negative cache entry">unbound-control -c /etc/unbound/lab.conf dump_cache | grep nope-lab</template>
+ <template data-label="6. Flush the whole zone">unbound-control -c /etc/unbound/lab.conf flush_zone wikipedia.org</template>
 </div>
 <div class="note good">Planning a move? Lower the TTL (say to 300) at least one old-TTL period before the change. Then make the change: everyone switches within 5 minutes. Raise the TTL again afterwards. Some resolvers ignore very low TTLs and use a minimum of their own, so don't count on seconds.</div>
 <button class="done-btn">Mark chapter as read</button>
@@ -382,6 +414,15 @@ input[type=range]{vertical-align:middle;width:160px}
  <div class="bar"><label>You are in <select id="an-loc"><option value="lhe">Lahore</option><option value="fra">Frankfurt</option><option value="nyc">New York</option><option value="syd">Sydney</option></select></label><button class="pri" id="an-q">Send query to 192.5.5.241</button></div>
  <div class="row" id="an-sites" style="margin:10px 0"></div>
  <div class="log" id="an-log" style="height:110px"></div>
+</div>
+<div class="lab term" data-tool="sh" id="real-root">
+ <div class="t">Lab: root servers and anycast with real dig</div>
+ <p class="hint">Real queries to real root servers. <code>brief</code> is a small shell function in this lab. It prints the status, the flags and the first 4 lines of each section. Click 1 for the 13 root names, as the resolver got them in its priming query. Click 2. Many root operators answer the special query <code>hostname.bind</code> (class CH, not IN) with the name of the instance that answered. The name often holds a city or airport code. When checked from Lahore, K-root answered as <code>ns1.pk-lhe.k.ripe.net</code> (Lahore) and F-root as <code>KHI.cf.f.root-servers.org</code> (Karachi, a Cloudflare-run F instance). You will see the instance nearest to you in network terms, so your names will differ. Each letter is one IP address. Anycast picks the instance. Click 3: the priming reply without EDNS, so the 512-byte limit applies. All 13 names fit, with <code>MSG SIZE</code> just under 512. ADDITIONAL holds only 13 addresses, not all 26 (IPv4 and IPv6). The rest did not fit. To break it, click 4: ask a root server for <code>printer.lan</code>. There is no <code>.lan</code> TLD, so the root answers NXDOMAIN with <code>aa</code> and its own SOA. This is the junk traffic the chapter describes.</p>
+ <template class="setup">brief() { awk '/^;; ->>HEADER/ {sub(/.*status: /, "status: "); print; next} /^;; flags/ {print; next} /^;; [A-Z]+ SECTION:/ {s=$2; c=0; if (s != "QUESTION") print; next} /^$/ {if (c &gt; 4) print "   (" c-4 " more)"; s=""; c=0; next} s != "" &amp;&amp; s != "QUESTION" &amp;&amp; !/^;/ {if (++c &lt;= 4) print}'; }</template>
+ <template data-label="1. The 13 root names">dig @127.0.0.1 . NS +noall +answer | sort -k5</template>
+ <template data-label="2. Which instance answers you?">for r in a f k l; do printf '%s-root: ' $r; dig -4 +short +time=3 @$r.root-servers.net hostname.bind CH TXT; done</template>
+ <template data-label="3. Priming reply in 512 bytes">dig -4 +noedns +norecurse @a.root-servers.net . NS | grep -E '^;; flags|MSG SIZE'</template>
+ <template data-label="4. Break it: a TLD that does not exist">dig -4 +norecurse @a.root-servers.net printer.lan | brief</template>
 </div>
 
 <h3>How resolvers find the root, and who controls it</h3>
@@ -425,6 +466,16 @@ input[type=range]{vertical-align:middle;width:160px}
   <p class="cap" data-s="5">Your actual records live at your DNS provider, who may or may not be your registrar. Changing an A record never involves the registry. Changing nameservers does, and the old NS records stay cached for up to the TLD's TTL (2 days for .com).</p>
  </div>
  <div class="ctl"></div>
+</div>
+<div class="lab term" data-tool="sh" id="real-tld">
+ <div class="t">Lab: what a TLD server knows, with real dig</div>
+ <p class="hint"><code>brief</code> is a small shell function in this lab. It prints the status, the flags and the first 4 lines of each section. Click 1 for the <code>.com</code> servers and the <code>.com</code> SOA. The SOA names Verisign (<code>nstld.verisign-grs.com</code>). Click 2: ask a <code>.com</code> server for example.com's MX record. It does not have it. ANSWER is 0, and you get the referral to example.com's nameservers. A TLD server holds only the delegation. Click 3: other TLDs have other registries, and their NS names show it (<code>afilias-nst</code> names for <code>.org</code>, <code>pknic.pk</code> for <code>.pk</code>). To break it, click 4: a <code>.com</code> name that nobody registered. Now the <code>.com</code> server is the source of the answer. The status is NXDOMAIN, the flags have <code>aa</code>, and AUTHORITY has the <code>.com</code> SOA.</p>
+ <template class="setup">brief() { awk '/^;; ->>HEADER/ {sub(/.*status: /, "status: "); print; next} /^;; flags/ {print; next} /^;; [A-Z]+ SECTION:/ {s=$2; c=0; if (s != "QUESTION") print; next} /^$/ {if (c &gt; 4) print "   (" c-4 " more)"; s=""; c=0; next} s != "" &amp;&amp; s != "QUESTION" &amp;&amp; !/^;/ {if (++c &lt;= 4) print}'; }</template>
+ <template data-label="1. .com servers and SOA">dig @127.0.0.1 com NS +short | sort
+dig @127.0.0.1 com SOA +short</template>
+ <template data-label="2. Ask .com for example.com MX">dig -4 +norecurse @a.gtld-servers.net example.com MX | brief</template>
+ <template data-label="3. Other TLDs">for t in org pk io; do echo "$t: $(dig @127.0.0.1 +short $t NS | sort | head -2 | tr '\n' ' ')"; done</template>
+ <template data-label="4. Break it: an unregistered .com name">dig -4 +norecurse @a.gtld-servers.net no-such-name-lab-7781.com | brief</template>
 </div>
 <button class="done-btn">Mark chapter as read</button>
 </section>
@@ -476,6 +527,17 @@ www   IN CNAME acmeshop.com.
  <div class="bar"><button class="pri" id="xf-edit">Edit record on primary</button><label><input type="checkbox" id="xf-bump" checked> Increase the serial</label><label><input type="checkbox" id="xf-notify" checked> NOTIFY reaches ns2</label><button id="xf-timer">REFRESH timer fires on ns2</button><button id="xf-reset">Reset</button></div>
  <div class="grid2"><div class="kv" id="xf-state"></div><div class="log" id="xf-log" style="height:150px"></div></div>
 </div>
+<div class="lab term" data-tool="sh" id="real-auth">
+ <div class="t">Lab: SOA, AA and zone transfers with real dig</div>
+ <p class="hint">Click 1 to read example.com's real SOA record with <code>+multi</code>, which labels each field. Compare the fields with the zone file above. Click 2: the same query to the authoritative server and to the resolver. Only the authoritative reply has <code>aa</code> in its flags. The resolver reply has <code>ra</code> instead, because it answers from its cache or on your behalf. Click 3: ask each of google.com's four nameservers for the SOA serial. They match, because each server has the same copy of the zone. To break it, click 4: ask ns1.google.com for a full zone transfer (AXFR). It refuses: dig prints "Transfer failed.", as it should be for every public zone. Click 5: <code>zonetransfer.me</code> is a training domain that its owner (DigiNinja) keeps open on purpose. The transfer works and gives a list of every hostname in the zone. That is the leak an open AXFR causes. Serials and record lists will differ over time.</p>
+ <template data-label="1. SOA of example.com">dig @127.0.0.1 example.com SOA +multi +noall +answer</template>
+ <template data-label="2. AA flag: authoritative vs resolver">NS=$(dig @127.0.0.1 +short example.com NS | head -1)
+echo "from $NS:"; dig -4 +norecurse @$NS example.com | grep '^;; flags'
+echo "from the resolver:"; dig @127.0.0.1 example.com | grep '^;; flags'</template>
+ <template data-label="3. Same serial on every nameserver">for ns in $(dig @127.0.0.1 +short google.com NS | sort); do echo "$ns serial $(dig -4 +short +time=3 @$ns google.com SOA | cut -d' ' -f3)"; done</template>
+ <template data-label="4. Break it: AXFR is refused">dig -4 @ns1.google.com google.com AXFR | grep -v '^$'</template>
+ <template data-label="5. An open AXFR (training domain)">dig -4 @nsztm1.digi.ninja zonetransfer.me AXFR | awk '!/^;/ &amp;&amp; NF {print $1, $4}' | sort -u | head -15</template>
+</div>
 <button class="done-btn">Mark chapter as read</button>
 </section>
 
@@ -505,6 +567,20 @@ www   IN CNAME acmeshop.com.
  <div class="grid2"><pre id="rs-zone" style="font-size:12px;max-height:340px"></pre><div class="pkt" id="rs-out"></div></div>
 </div>
 <p><b>NXDOMAIN</b> means the name does not exist at all. <b>NODATA</b> (status NOERROR with an empty answer) means the name exists but has no record of the type you asked for. Both come with the zone's SOA in the AUTHORITY section, so resolvers know how long to cache the negative answer.</p>
+<div class="lab term" data-tool="sh" id="real-rr">
+ <div class="t">Lab: record types with real dig</div>
+ <p class="hint">The resolver at 127.0.0.1 also serves a small made-up zone, <code>acmeshop.test</code>, from its own config: A 192.0.2.10, AAAA 2001:db8::10, <code>www</code> as a CNAME, and MX 10 <code>mail.acmeshop.test</code>. Presets 1 to 3 ask that zone. Preset 1 shows the A and AAAA records. Preset 2 asks for <code>www</code>. This local zone gives only the CNAME, so the client must then ask for <code>acmeshop.test</code> itself. Preset 3 shows the MX and then the mail server's own A record. A mail server does those two lookups. Presets 4 and 5 ask real domains. In preset 4 the resolver follows a real CNAME (<code>www.github.com</code>) for you: one reply holds the CNAME and the A record of its target. Preset 5 shows Google's MX, TXT (SPF), CAA and HTTPS records. <code>brief</code> is a small shell function in this lab. It prints the status, the flags and the first 4 lines of each section. To break it, click 6: github.com has no AAAA record (when checked). The status is NOERROR, ANSWER is 0, and AUTHORITY has the SOA. That is NODATA. Click 7: a name that does not exist in acmeshop.test. The status is NXDOMAIN. Real records and TTLs will differ.</p>
+ <template class="setup">brief() { awk '/^;; ->>HEADER/ {sub(/.*status: /, "status: "); print; next} /^;; flags/ {print; next} /^;; [A-Z]+ SECTION:/ {s=$2; c=0; if (s != "QUESTION") print; next} /^$/ {if (c &gt; 4) print "   (" c-4 " more)"; s=""; c=0; next} s != "" &amp;&amp; s != "QUESTION" &amp;&amp; !/^;/ {if (++c &lt;= 4) print}'; }</template>
+ <template data-label="1. A and AAAA">for t in A AAAA; do dig @127.0.0.1 acmeshop.test $t +noall +answer; done</template>
+ <template data-label="2. CNAME (www)">dig @127.0.0.1 www.acmeshop.test +noall +answer</template>
+ <template data-label="3. MX, then the mail server A">dig @127.0.0.1 acmeshop.test MX +noall +answer
+dig @127.0.0.1 mail.acmeshop.test +noall +answer</template>
+ <template data-label="4. A real CNAME">dig @127.0.0.1 www.github.com +noall +answer</template>
+ <template data-label="5. Real MX, TXT, CAA, HTTPS">for t in MX CAA HTTPS; do echo "== google.com $t"; dig @127.0.0.1 +short google.com $t | head -3; done
+echo "== google.com TXT (SPF only)"; dig @127.0.0.1 +short google.com TXT | grep spf</template>
+ <template data-label="6. Break it: NODATA">dig @127.0.0.1 github.com AAAA | brief</template>
+ <template data-label="7. Break it: NXDOMAIN">dig @127.0.0.1 shop.acmeshop.test | brief</template>
+</div>
 <button class="done-btn">Mark chapter as read</button>
 </section>
 
@@ -539,6 +615,15 @@ www   IN CNAME acmeshop.com.
 <li><b>EDNS(0)</b> adds a fake "OPT" record to the additional section. It lets the client say "I can take bigger replies" and carries the DO flag for DNSSEC. Since DNS Flag Day 2020, the common advice is 1,232 bytes, small enough to avoid IP fragmentation.</li>
 <li>If the answer still doesn't fit, the server sets <b>TC</b>. The client then repeats the query over <b>TCP</b> port 53. TCP is also used for zone transfers. Every DNS server must support it (RFC 7766).</li>
 </ul>
+<div class="lab term" data-tool="sh" id="real-wire">
+ <div class="t">Lab: header flags, EDNS and TCP fallback with real dig</div>
+ <p class="hint">Click 1. <code>+qr</code> makes dig print the query it sent, then the reply. Both have the same <code>id</code>. The query flags are <code>rd ad</code> (dig sets AD to ask whether the data was validated). The reply flags add <code>qr</code> (a response) and <code>ra</code> (recursion available). The query has an EDNS line with <code>udp: 1232</code>, the size dig can take. QUERY SIZE and MSG SIZE show how small the messages are, about 50 and 70 bytes. Click 1 again: the id is new, because each query gets a random one. Click 2: a large answer (Google's TXT records, about 1,200 bytes) still fits in one UDP reply, because EDNS allows 1,232 bytes. To break it, click 3: the same query with no EDNS, so the old 512-byte limit applies. <code>+ignore</code> stops dig from retrying. The reply has the <code>tc</code> flag, ANSWER 0 and only 28 bytes. Click 4: without <code>+ignore</code>, dig prints "Truncated, retrying in TCP mode." and the SERVER line ends in (TCP). Click 5: a query without RD. This resolver refuses it (REFUSED), because it only answers recursive queries from its clients. Sizes will differ.</p>
+ <template data-label="1. Query and reply (+qr)">dig @127.0.0.1 +qr example.com | grep -E 'HEADER|^;; flags|EDNS|QUERY SIZE|MSG SIZE'</template>
+ <template data-label="2. A big answer with EDNS">dig @127.0.0.1 google.com TXT | grep -E '^;; flags|EDNS|MSG SIZE'</template>
+ <template data-label="3. Break it: no EDNS, 512 bytes, TC">dig @127.0.0.1 +noedns +ignore google.com TXT | grep -E '^;; flags|MSG SIZE'</template>
+ <template data-label="4. Fall back to TCP">dig @127.0.0.1 +noedns google.com TXT | grep -E 'Truncated|^;; flags|SERVER|MSG SIZE'</template>
+ <template data-label="5. Break it: no RD to a resolver">dig @127.0.0.1 +norecurse example.com | grep -E 'status|^;; flags'</template>
+</div>
 <button class="done-btn">Mark chapter as read</button>
 </section>
 
@@ -559,6 +644,17 @@ www   IN CNAME acmeshop.com.
 <li><b>Logs and tools</b>: <code>traceroute</code> and server logs show readable names instead of raw IPs.</li>
 </ul>
 <p>A PTR proves nothing by itself. Anyone who controls an IP block can set any name. That is why mail servers check that the name's A record points back.</p>
+<div class="lab term" data-tool="sh" id="real-ptr">
+ <div class="t">Lab: reverse DNS with real dig</div>
+ <p class="hint"><code>dig -x</code> writes the IP backwards and asks for the PTR record. Click 1: the lab resolver has a PTR for 192.0.2.10. Look at the name in the answer: <code>10.2.0.192.in-addr.arpa</code>. Click 2 for two real PTRs: 1.1.1.1 and 8.8.8.8. The first lookup can take a few seconds. Click 3 to see who serves the reverse zone for 1.1.1.1. The <code>;; Received</code> lines go from a root server to <code>in-addr-servers.arpa</code>, then to a server for APNIC's zone (APNIC is the registry for that IP block), then to Cloudflare, which holds the block. The IP owner sets the PTR, not a domain owner. Click 4 for the check a mail server does: PTR first, then the A record of that name. If the A record holds the same IP, the name is forward-confirmed. Click 5 for an IPv6 PTR, under <code>ip6.arpa</code>, one label per hex digit. To break it, click 6: an IP with no PTR gives NXDOMAIN. Names and times will differ.</p>
+ <template data-label="1. PTR for 192.0.2.10 (lab zone)">dig @127.0.0.1 -x 192.0.2.10 +noall +answer</template>
+ <template data-label="2. Real PTRs">for ip in 1.1.1.1 8.8.8.8; do dig @127.0.0.1 +timeout=8 -x $ip +noall +answer; done</template>
+ <template data-label="3. Who serves the reverse zone (trace)">dig +trace +nodnssec @127.0.0.1 -x 1.1.1.1 | grep Received</template>
+ <template data-label="4. Forward-confirmed check">N=$(dig @127.0.0.1 +short -x 8.8.8.8); echo "PTR of 8.8.8.8: $N"
+echo "A of $N: $(dig @127.0.0.1 +short $N A | tr '\n' ' ')"</template>
+ <template data-label="5. IPv6 PTR">dig @127.0.0.1 -x 2606:4700:4700::1111 +noall +answer</template>
+ <template data-label="6. Break it: no PTR">dig @127.0.0.1 -x 192.0.2.99 | grep status</template>
+</div>
 <button class="done-btn">Mark chapter as read</button>
 </section>
 
@@ -606,6 +702,17 @@ www   IN CNAME acmeshop.com.
  <div id="ds-out" class="col" style="align-items:stretch"></div>
 </div>
 <p>If validation fails, a validating resolver returns <b>SERVFAIL</b>, not the bad data. A broken DNSSEC setup therefore takes a domain offline for everyone using validating resolvers (like 1.1.1.1 and 8.8.8.8). A common cause is changing DNS provider without removing the old DS first.</p>
+<div class="lab term" data-tool="sh" id="real-dnssec">
+ <div class="t">Lab: DNSSEC with real dig</div>
+ <p class="hint">The lab resolver at 127.0.0.1 does <b>not</b> validate DNSSEC. It has no trust anchor configured. 1.1.1.1 (Cloudflare) does validate. Click 1: with <code>+dnssec</code> (the DO bit), the A records come with an RRSIG, the signature. Click 2: the DS records, the hash of a zone's key published in its parent. <code>example.com DS</code> is served by <code>.com</code>, and <code>com DS</code> by the root. Click 3: ask 1.1.1.1. The reply flags have <code>ad</code> (authentic data), because 1.1.1.1 checked the chain up to the root. To break it, click 4: <code>dnssec-failed.org</code> is a test domain with a broken DNSSEC setup on purpose. 1.1.1.1 returns SERVFAIL, and an EDE line gives the reason (DNSKEY Missing: no key matches the DS). Click 5: the same query with <code>+cd</code> (checking disabled). 1.1.1.1 now returns the A record, without <code>ad</code>. Click 6: the lab resolver does not validate, so it returns the A record with no error. A non-validating resolver gives no protection: it would also return a forged answer.</p>
+ <template data-label="1. RRSIG on example.com">dig @127.0.0.1 +dnssec example.com | grep -E '^;; flags|EDNS|RRSIG'</template>
+ <template data-label="2. DS in the parent">echo "example.com DS:"; dig @127.0.0.1 +short example.com DS
+echo "com DS:"; dig @127.0.0.1 +short com DS</template>
+ <template data-label="3. AD flag from a validating resolver">dig @1.1.1.1 example.com | grep -E 'status|^;; flags'</template>
+ <template data-label="4. Break it: broken DNSSEC via 1.1.1.1">dig @1.1.1.1 dnssec-failed.org | grep -E 'status|^;; flags|EDE|^dnssec'</template>
+ <template data-label="5. Same with checking disabled (+cd)">dig @1.1.1.1 +cd dnssec-failed.org | grep -E 'status|^;; flags|^dnssec'</template>
+ <template data-label="6. Same via the lab resolver (no validation)">dig @127.0.0.1 dnssec-failed.org | grep -E 'status|^;; flags|^dnssec'</template>
+</div>
 
 <h3>Privacy: DoT and DoH</h3>
 <p>Classic DNS is plain text. Your ISP, Wi-Fi owner or anyone on the path can see every name you look up, even if the website itself uses HTTPS. Two standards encrypt the path between your device and the resolver:</p>
@@ -616,6 +723,14 @@ www   IN CNAME acmeshop.com.
 <tr><td>Typical use</td><td>Android "Private DNS", OS-level</td><td>browsers (Firefox turned it on by default for US users in 2020, per Cloudflare)</td></tr>
 </table>
 <p>DoT and DoH protect the trip to the resolver. They don't stop the resolver from seeing your queries, and they don't prove the answer is genuine. DNSSEC does that part. Two other privacy features: <b>QNAME minimisation</b> (RFC 9156) makes the resolver send the root only <code>com</code> and <code>.com</code> only <code>acmeshop.com</code>, not the full name. <b>Oblivious DoH</b> adds a relay so the resolver sees queries but not who sent them.</p>
+<div class="lab term" data-tool="sh" id="real-doh">
+ <div class="t">Lab: DNS over HTTPS with real curl</div>
+ <p class="hint">DoH is an HTTPS request to a resolver. Click 1: <code>curl</code> asks Cloudflare's DoH endpoint for example.com in the JSON format. <code>jq</code> formats the reply. The fields match the DNS header: Status 0 is NOERROR, and TC, RD, RA, AD and CD are the flags. Click 2: the same question in the standard wire format (RFC 8484). The query is the DNS message from chapter 11, base64url-encoded in the URL. The reply is binary, shown as hex: the header (<code>81 80</code> is the flags), the question, then answers that start with <code>c0 0c</code>, a compression pointer to the name at byte 12. Click 3: the same name over plain UDP to the same resolver, for comparison. To break it, click 4: <code>dnssec-failed.org</code> over DoH gives Status 2 (SERVFAIL) with the reason in Comment. Encryption protects the path to the resolver. It does not fix a broken zone. Answers and TTLs will differ.</p>
+ <template data-label="1. DoH, JSON">curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=example.com&amp;type=A' | jq .</template>
+ <template data-label="2. DoH, wire format (RFC 8484)">curl -s -H 'accept: application/dns-message' 'https://cloudflare-dns.com/dns-query?dns=AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB' | od -An -tx1</template>
+ <template data-label="3. Same name over plain UDP">dig @1.1.1.1 www.example.com +noall +answer</template>
+ <template data-label="4. Break it: SERVFAIL over DoH">curl -s -H 'accept: application/dns-json' 'https://cloudflare-dns.com/dns-query?name=dnssec-failed.org&amp;type=A' | jq .</template>
+</div>
 
 <h3>Other attacks on DNS</h3>
 <ul>
@@ -687,6 +802,17 @@ acmeshop.com.        3600   IN A 203.0.113.10
  <div class="t">Lab: what does this error mean?</div>
  <div class="bar" id="dbg-btns"></div>
  <div class="note" id="dbg-out">Pick a symptom.</div>
+</div>
+<div class="lab term" data-tool="sh" id="real-practice">
+ <div class="t">Lab: real DNS behaviour and real errors with dig</div>
+ <p class="hint">Click 1: ask for www.google.com three times. When checked, the reply had 8 A records and their order changed each time. That is round-robin DNS: clients that take the first IP spread across servers. Your IPs and count will differ. Click 2: cloudflare.com's HTTPS record. It lists <code>alpn="h3,h2"</code> (HTTP/3 and HTTP/2) and IP hints, so a browser knows how to connect before it opens a connection. Click 3: the same question to three public resolvers. Each answers from its own cache, so TTLs differ. Then break it, one error at a time, and match each to the symptom in the lab above. Click 4: a typo in the TLD gives NXDOMAIN. Click 5: a server that does not answer. 192.0.2.1 is a documentation address with nothing behind it, so dig times out and prints "no servers could be reached". Click 6: an authoritative-only server asked about a zone it does not serve says REFUSED.</p>
+ <template data-label="1. Round robin (ask 3 times)">for i in 1 2 3; do dig @127.0.0.1 +short www.google.com A | tr '\n' ' '; echo; done</template>
+ <template data-label="2. HTTPS record">dig @127.0.0.1 +short cloudflare.com HTTPS</template>
+ <template data-label="3. Three resolvers, three caches">for r in 127.0.0.1 1.1.1.1 8.8.8.8; do echo "$r: $(dig @$r example.com +noall +answer | head -1)"; done</template>
+ <template data-label="4. Break it: NXDOMAIN">dig @127.0.0.1 acmeshop.tset | grep status</template>
+ <template data-label="5. Break it: timeout">dig @192.0.2.1 example.com +time=2 +tries=1</template>
+ <template data-label="6. Break it: REFUSED">NS=$(dig @127.0.0.1 +short example.com NS | head -1); echo "asking $NS about google.com"
+dig -4 @$NS google.com | grep -E 'status|^;; flags'</template>
 </div>
 
 <h3>The whole flow, one last time</h3>
@@ -920,5 +1046,6 @@ $$('.build').forEach(b=>{
  D.forEach(d=>{const b=document.createElement('button');b.textContent=d[0];b.onclick=()=>{$$('#dbg-btns button').forEach(x=>x.classList.remove('pri'));b.classList.add('pri');$('#dbg-out').innerHTML=`<b>${d[0]}</b>: ${d[1]}`;};$('#dbg-btns').appendChild(b);});
 })();
 </script>
+<script type="module" src="../runtime/lab.js"></script>
 </body>
 </html>
