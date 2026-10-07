@@ -1,0 +1,8 @@
+#!/bin/sh
+# alarm [NAME]: the alarm's state, its reason, and the last 5 minutes of its metric (average per minute). Default high-latency.
+a=${1:-high-latency}
+aws cloudwatch describe-alarms --alarm-names "$a" --query 'MetricAlarms[0].[StateValue,StateReason]' --output text
+aws cloudwatch get-metric-statistics --namespace Shop --metric-name LatencyMs --statistics Average Maximum SampleCount \
+  --start-time "$(date -u -d '-5 min' +%FT%TZ)" --end-time "$(date -u -d '+1 min' +%FT%TZ)" --period 60 \
+  --query 'sort_by(Datapoints,&Timestamp)[].[Timestamp,Average,Maximum,SampleCount]' --output text |
+  awk '{print "  " $1 "  avg " $2 "  max " $3 "  samples " $4}'

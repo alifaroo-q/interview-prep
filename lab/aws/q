@@ -1,0 +1,9 @@
+#!/bin/sh
+# q [QUEUE...]: message counts per queue. visible = waiting to be received, in flight = received but not deleted yet.
+[ $# -eq 0 ] && set -- orders orders-dlq
+for n in "$@"; do
+  u=http://floci:4566/000000000000/$n
+  aws sqs get-queue-attributes --queue-url "$u" --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible \
+    --query 'Attributes.[ApproximateNumberOfMessages,ApproximateNumberOfMessagesNotVisible]' --output text |
+    awk -v n="$n" '{printf "  %-12s visible %s   in flight %s\n", n, $1, $2}'
+done

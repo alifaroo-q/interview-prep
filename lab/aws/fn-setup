@@ -1,0 +1,8 @@
+#!/bin/sh
+# fn-setup: (re)create the Lambda function "counter" from /lab/fn/counter.py, Python 3.12, 3 s timeout.
+cd /tmp && python3 -c "import zipfile; z=zipfile.ZipFile('counter.zip','w'); z.write('/lab/fn/counter.py','counter.py')"
+aws lambda delete-function --function-name counter >/dev/null 2>&1
+aws iam get-role --role-name counter-role >/dev/null 2>&1 || aws iam create-role --role-name counter-role \
+  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
+aws lambda create-function --function-name counter --runtime python3.12 --handler counter.handler --timeout 3 \
+  --role arn:aws:iam::000000000000:role/counter-role --zip-file fileb:///tmp/counter.zip --query '[FunctionName,Runtime,Timeout,MemorySize,State]' --output text

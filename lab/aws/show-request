@@ -1,0 +1,24 @@
+#!/bin/sh
+# show-request aws ARGS...: run an AWS CLI command and print the HTTP request it sent (from --debug), then the answer.
+"$@" --debug 2>/tmp/debug.log > /tmp/out.txt; rc=$?
+python3 - <<'PY'
+import re
+log = open('/tmp/debug.log').read()
+m = re.search(r"Sending http request: <AWSPreparedRequest stream_output=\w+, method=(\w+), url=(\S+), headers=\{(.*?)\}>", log, re.S)
+if not m: print("no request found"); raise SystemExit
+method, url, hdrs = m.groups()
+print(f"{method} {url}")
+for name in ("X-Amz-Date", "X-Amz-Target", "Authorization"):
+    h = re.search(rf"'{name}': b'([^']*)'", hdrs)
+    if not h: continue
+    if name == "Authorization":
+        v = h.group(1); algo, rest = v.split(" ", 1)
+        print(f"Authorization: {algo}")
+        for part in rest.split(", "): print(f"    {part}")
+    else: print(f"{name}: {h.group(1)}")
+b = re.search(r"'body': (\{.*?\}|b'.*?'|'.*?'), 'url'", log, re.S)
+if b and b.group(1) not in ("b''", "''"): print(f"body: {b.group(1)[:200]}")
+r = re.search(r'"(?:POST|GET|PUT|DELETE|HEAD) [^"]*" (\d+)', log)
+if r: print(f"<- HTTP {r.group(1)}")
+PY
+cat /tmp/out.txt; exit $rc

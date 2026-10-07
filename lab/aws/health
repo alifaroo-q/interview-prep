@@ -1,0 +1,6 @@
+#!/bin/sh
+# health [TARGET_GROUP]: the load balancer's view of each target (state and reason). Default web-tg.
+tg=$(aws elbv2 describe-target-groups --names "${1:-web-tg}" --query 'TargetGroups[0].TargetGroupArn' --output text) || exit 1
+aws elbv2 describe-target-health --target-group-arn "$tg" \
+  --query 'TargetHealthDescriptions[].[join(`:`,[Target.Id,to_string(Target.Port)]),TargetHealth.State,TargetHealth.Reason||`-`]' --output text |
+  sed 's/:23001/:23001 orders-1/;s/:23002/:23002 orders-2/;s/:23003/:23003 orders-3/'

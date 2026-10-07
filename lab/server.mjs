@@ -19,6 +19,9 @@ const TOOLS = {
   redis: { container: 'xp-redis', session: true, prompt: '> ', cmd: ['sh', '-c', 'redis-cli --no-raw 2>&1'], end: `ECHO ${END}` },
   sh:    { container: 'xp-tools', session: true, prompt: '$ ', cmd: ['sh', '-c', 'exec sh 2>&1'], end: `echo ${END}`, wrap: shellInput },
   kafka: { container: 'xp-kafka', session: true, prompt: '$ ', cmd: ['sh', '-c', 'cd /opt/kafka/bin && PATH=$PATH:/opt/kafka/bin exec sh 2>&1'], end: `echo ${END}`, wrap: shellInput },
+  cdn:   { container: 'xp-cdn-client', session: true, prompt: '$ ', cmd: ['sh', '-c', 'exec sh 2>&1'], end: `echo ${END}`, wrap: shellInput },
+  net:   { container: 'xp-net', session: true, prompt: '$ ', cmd: ['sh', '-c', 'exec sh 2>&1'], end: `echo ${END}`, wrap: shellInput },
+  aws:   { container: 'xp-aws', session: true, prompt: '$ ', cmd: ['sh', '-c', 'exec sh 2>&1'], end: `echo ${END}`, wrap: shellInput },
   dig:   { container: 'xp-tools', prompt: '$ dig ', cmd: ['dig'] },
   curl:  { container: 'xp-tools', prompt: '$ curl ', cmd: ['curl', '-sS', '--max-time', '10'] },
 };

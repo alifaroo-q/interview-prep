@@ -1,0 +1,10 @@
+#!/bin/sh
+# mkuser NAME: make a fresh IAM user with no policies and one access key, saved for `as NAME`.
+# Deletes an older user of that name first, so it is safe to run again.
+n=$1; mkdir -p /tmp/keys
+for p in $(aws iam list-user-policies --user-name "$n" --query PolicyNames --output text 2>/dev/null); do aws iam delete-user-policy --user-name "$n" --policy-name "$p"; done
+for k in $(aws iam list-access-keys --user-name "$n" --query 'AccessKeyMetadata[].AccessKeyId' --output text 2>/dev/null); do aws iam delete-access-key --user-name "$n" --access-key-id "$k"; done
+aws iam delete-user --user-name "$n" 2>/dev/null
+aws iam create-user --user-name "$n" --query User.Arn --output text
+aws iam create-access-key --user-name "$n" --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text > "/tmp/keys/$n"
+echo "access key for $n: $(cut -f1 /tmp/keys/$n)"

@@ -1,0 +1,4 @@
+#!/bin/sh
+# cut-off web-N: that replica stops answering. Toxiproxy refuses new connections and resets open ones (pooled keep-alive).
+curl -s -o /dev/null -X POST "toxiproxy:8474/proxies/$1/toxics" -d '{"name":"cut","type":"reset_peer","attributes":{"timeout":0}}'
+curl -s -o /dev/null -X POST "toxiproxy:8474/proxies/$1" -d '{"enabled":false}' && echo "$1 cut off"

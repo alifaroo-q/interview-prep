@@ -1,0 +1,4 @@
+#!/bin/sh
+# restore web-N: turn a replica that `cut-off` took off back on.
+curl -s -o /dev/null -X DELETE "toxiproxy:8474/proxies/$1/toxics/cut"
+curl -s -o /dev/null -X POST "toxiproxy:8474/proxies/$1" -d '{"enabled":true}' && echo "$1 back on"

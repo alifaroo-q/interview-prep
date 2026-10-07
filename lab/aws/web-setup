@@ -1,0 +1,21 @@
+#!/bin/sh
+# web-setup: an ALB "web-alb" on port 80 with target group "web-tg" (health check every 5 s, 2 checks to change state).
+# Its three targets are the whoami replicas orders-1..3, reached through Toxiproxy (web-1..3 on ports 23001-23003),
+# so `cut-off web-2` can take one off the network. Safe to run again: it deletes the old ALB and target group first.
+for i in 1 2 3; do
+  curl -s -o /dev/null -X POST toxiproxy:8474/proxies -d "{\"name\":\"web-$i\",\"listen\":\"0.0.0.0:2300$i\",\"upstream\":\"orders-$i:80\",\"enabled\":true}"
+  curl -s -o /dev/null -X DELETE toxiproxy:8474/proxies/web-$i/toxics/cut
+  curl -s -o /dev/null -X POST toxiproxy:8474/proxies/web-$i -d '{"enabled":true}'
+done
+lb=$(aws elbv2 describe-load-balancers --names web-alb --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null)
+[ -n "$lb" ] && aws elbv2 delete-load-balancer --load-balancer-arn "$lb"
+for tg in $(aws elbv2 describe-target-groups --query 'TargetGroups[].TargetGroupArn' --output text 2>/dev/null); do aws elbv2 delete-target-group --target-group-arn "$tg"; done
+ip=$(getent ahostsv4 toxiproxy | awk '{print $1; exit}')
+tg() { aws elbv2 create-target-group --name "$1" --protocol HTTP --port 80 --target-type ip --vpc-id vpc-default-us-east-1 \
+  --health-check-path / --health-check-interval-seconds 5 --health-check-timeout-seconds 2 --healthy-threshold-count 2 --unhealthy-threshold-count 2 \
+  --query 'TargetGroups[0].TargetGroupArn' --output text; }
+TG=$(tg web-tg)
+aws elbv2 register-targets --target-group-arn "$TG" --targets Id=$ip,Port=23001 Id=$ip,Port=23002 Id=$ip,Port=23003
+LB=$(aws elbv2 create-load-balancer --name web-alb --subnets subnet-default-us-east-1-a subnet-default-us-east-1-b --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+aws elbv2 create-listener --load-balancer-arn "$LB" --protocol HTTP --port 80 --default-actions Type=forward,TargetGroupArn="$TG" >/dev/null
+echo "web-alb -> web-tg: $ip:23001 (orders-1), $ip:23002 (orders-2), $ip:23003 (orders-3)"

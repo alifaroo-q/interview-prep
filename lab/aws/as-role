@@ -1,0 +1,8 @@
+#!/bin/sh
+# as-role ROLE USER COMMAND...: USER calls sts:AssumeRole on ROLE, then COMMAND runs with the temporary credentials.
+role=$1 user=$2; shift 2
+c=$(as "$user" aws sts assume-role --role-arn "arn:aws:iam::000000000000:role/$role" --role-session-name "$user-session" \
+  --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken,Expiration]' --output text) || exit 1
+set -- $c "$@"; k=$1 s=$2 t=$3 e=$4; shift 4
+echo "temporary key $k, expires $e"
+AWS_ACCESS_KEY_ID=$k AWS_SECRET_ACCESS_KEY=$s AWS_SESSION_TOKEN=$t exec "$@"

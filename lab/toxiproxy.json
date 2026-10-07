@@ -1,5 +1,10 @@
 [
-  { "name": "orders-1", "listen": "0.0.0.0:21001", "upstream": "orders-1:80", "enabled": true },
-  { "name": "orders-2", "listen": "0.0.0.0:21002", "upstream": "orders-2:80", "enabled": true },
-  { "name": "orders-3", "listen": "0.0.0.0:21003", "upstream": "orders-3:80", "enabled": true }
+  {"name": "orders-1", "listen": "0.0.0.0:21001", "upstream": "orders-1:80", "enabled": true},
+  {"name": "orders-2", "listen": "0.0.0.0:21002", "upstream": "orders-2:80", "enabled": true},
+  {"name": "orders-3", "listen": "0.0.0.0:21003", "upstream": "orders-3:80", "enabled": true},
+  {"name": "cdn-origin", "listen": "0.0.0.0:22001", "upstream": "cdn-origin:443", "enabled": true},
+  {"name": "cdn-origin-slow", "listen": "0.0.0.0:22002", "upstream": "cdn-origin:443", "enabled": true},
+  {"name": "web-1", "listen": "0.0.0.0:23001", "upstream": "orders-1:80", "enabled": true},
+  {"name": "web-2", "listen": "0.0.0.0:23002", "upstream": "orders-2:80", "enabled": true},
+  {"name": "web-3", "listen": "0.0.0.0:23003", "upstream": "orders-3:80", "enabled": true}
 ]

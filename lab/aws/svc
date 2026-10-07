@@ -1,0 +1,11 @@
+#!/bin/sh
+# svc: the ECS service "web" in cluster "shop": desired / running / pending counts, its tasks, and the newest events.
+aws ecs describe-services --cluster shop --services web \
+  --query 'services[0].[taskDefinition,desiredCount,runningCount,pendingCount]' --output text |
+  awk '{sub(/.*task-definition\//,"",$1); print "task definition " $1 "  desired " $2 "  running " $3 "  pending " $4}'
+t=$(aws ecs list-tasks --cluster shop --service-name web --query taskArns --output text)
+[ -n "$t" ] && aws ecs describe-tasks --cluster shop --tasks $t --query 'tasks[].[taskArn,lastStatus,taskDefinitionArn]' --output text |
+  sed 's#arn:[^ \t]*task/shop/#  task #; s#arn:[^ \t]*task-definition/#  #'
+echo "deployments:"; aws ecs describe-services --cluster shop --services web --query 'services[0].deployments[].[status,taskDefinition,runningCount,failedTasks,rolloutState]' --output text |
+  sed 's#arn:[^ \t]*task-definition/##' | awk '{print "  " $1 " " $2 "  running " $3 "  failed " $4 "  " $5}'
+echo "events:"; aws ecs describe-services --cluster shop --services web --query 'services[0].events[:3].[createdAt,message]' --output text | sed 's/^/  /'

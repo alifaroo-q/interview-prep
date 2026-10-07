@@ -1,0 +1,6 @@
+#!/bin/sh
+# invoke [PAYLOAD]: call "counter" once and print the status, any error, the reply and the time it took.
+rm -f /tmp/reply.json; p=${1:-'{}'}; s=$(date +%s%N)
+r=$(aws lambda invoke --function-name counter --cli-binary-format raw-in-base64-out --payload "$p" /tmp/reply.json --query '[StatusCode,FunctionError]' --output text 2>&1)
+e=$(date +%s%N)
+echo "$r  $(cat /tmp/reply.json 2>/dev/null)  ($(( (e - s) / 1000000 )) ms incl. CLI start)"

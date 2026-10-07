@@ -1,0 +1,9 @@
+#!/bin/sh
+# hit [N] [PATH]: send N requests (default 6) to the ALB and print which replica answered each one.
+n=${1:-6}; p=${2:-/}; i=0
+while [ $i -lt "$n" ]; do
+  r=$(curl -s -m 3 -w '|%{http_code}' "http://floci$p"); code=${r##*|}
+  h=$(printf '%s' "$r" | sed -n 's/^Hostname: //p')
+  echo "  request $((i+1)): HTTP ${code:-000}  ${h:-no answer}"
+  i=$((i+1))
+done

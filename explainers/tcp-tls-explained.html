@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connections explained: TCP, TLS, HTTP/2, QUIC and the CDN path</title>
+<style>
+:root{
+  --bg:#0f1218;--panel:#161b24;--panel2:#1d2430;--line:#2b3445;--text:#e3e8f0;--mute:#93a0b4;
+  --edge:#4ea1ff;--svc:#3ecf8e;--data:#f5b942;--msg:#b58cff;--bad:#ff6b6b;--plat:#7ad3e0;--client:#e0e6ef;
+  --ok:#3ecf8e;--warn:#f5b942;
+}
+body.light{--bg:#f6f7fa;--panel:#fff;--panel2:#eef1f6;--line:#d6dce6;--text:#1b2230;--mute:#5d6b80;--client:#39465a}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+code,pre,.mono{font-family:ui-monospace,"JetBrains Mono",Consolas,monospace;font-size:.88em}
+code{background:var(--panel2);padding:1px 5px;border-radius:4px}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;line-height:1.45}
+a{color:var(--edge)}
+/* layout */
+#side{position:fixed;top:0;left:0;bottom:0;width:290px;background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:16px 12px;z-index:5}
+#side h1{font-size:17px;margin:0 6px 4px}
+#side .sub{color:var(--mute);font-size:13px;margin:0 6px 10px}
+#prog{height:6px;background:var(--panel2);border-radius:3px;margin:0 6px 12px;overflow:hidden}
+#prog i{display:block;height:100%;width:0;background:var(--svc);transition:width .4s}
+#nav a{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-radius:6px;color:var(--text);text-decoration:none;font-size:14px;line-height:1.35}
+#nav a:hover{background:var(--panel2)}
+#nav a.cur{background:var(--panel2);box-shadow:inset 3px 0 var(--edge)}
+#nav a .num{color:var(--mute);min-width:22px;font-variant-numeric:tabular-nums}
+#nav a.done .num{color:var(--svc)}
+#nav a.done .num::after{content:" ✓"}
+#tools{display:flex;gap:6px;margin:14px 6px 0}
+main{margin-left:290px;padding:30px 40px 120px;max-width:1040px}
+#menu{display:none}
+@media(max-width:900px){#side{transform:translateX(-100%);transition:.25s}#side.open{transform:none}main{margin-left:0;padding:20px 16px 100px}#menu{display:block;position:fixed;top:10px;right:10px;z-index:6}}
+/* sections */
+section.ch{padding:10px 0 40px;border-bottom:1px solid var(--line);margin-bottom:30px}
+section.ch>h2{font-size:28px;line-height:1.2;margin:10px 0 4px}
+.topics{color:var(--mute);font-size:13px;margin-bottom:14px}
+h3{font-size:20px;margin:30px 0 8px}
+h4{font-size:16px;margin:20px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+p{margin:10px 0}
+.lead{font-size:18px}
+.note{border-left:3px solid var(--edge);background:var(--panel);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0}
+.note.warn{border-color:var(--warn)}.note.bad{border-color:var(--bad)}.note.good{border-color:var(--ok)}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel2)}
+.done-btn{margin-top:18px}
+/* controls */
+button,select,input[type=text]{font:inherit;font-size:14px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 12px}
+button{cursor:pointer}
+button:hover{border-color:var(--edge)}
+button.pri{background:var(--edge);border-color:var(--edge);color:#fff}
+button.dan{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.45;cursor:default}
+label{font-size:14px;color:var(--mute)}
+input[type=range]{vertical-align:middle;width:160px}
+/* widget box */
+.lab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin:18px 0}
+.lab>.t{font-weight:600;margin-bottom:4px}
+.lab>.t::before{content:"▶ ";color:var(--edge)}
+.lab .hint{color:var(--mute);font-size:14px;margin:0 0 10px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.log{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;height:190px;overflow:auto;font:13px/1.5 ui-monospace,Consolas,monospace}
+.log .ok{color:var(--ok)}.log .bad{color:var(--bad)}.log .warn{color:var(--warn)}.log .info{color:var(--edge)}.log .msg{color:var(--msg)}.log .mute{color:var(--mute)}
+.stat{display:inline-block;background:var(--panel2);border-radius:8px;padding:6px 12px;margin:3px;font-size:14px}
+.stat b{font-size:18px;display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+/* diagram nodes */
+.stage{padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:auto}
+.col{display:flex;flex-direction:column;align-items:center;gap:4px}
+.row{display:flex;justify-content:center;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.row.mid{align-items:center}
+.n{border:2px solid var(--svc);color:var(--text);background:var(--panel);border-radius:8px;padding:6px 12px;font-size:14px;text-align:center;min-width:110px;transition:opacity .35s,box-shadow .35s,transform .35s}
+.n small{display:block;color:var(--mute);font-size:11.5px}
+.n.edge{border-color:var(--edge)}.n.svc{border-color:var(--svc)}.n.data{border-color:var(--data);border-radius:14px 14px 8px 8px}.n.msg{border-color:var(--msg)}.n.bad{border-color:var(--bad)}.n.plat{border-color:var(--plat);border-style:dashed}.n.client{border-color:var(--client)}
+.n.dim{opacity:.35}.n.dead{border-color:var(--bad);opacity:.5;text-decoration:line-through}
+.n.hot{box-shadow:0 0 0 4px rgba(78,161,255,.35)}
+.n.hotok{box-shadow:0 0 0 4px rgba(62,207,142,.4)}
+.n.hotbad{box-shadow:0 0 0 4px rgba(255,107,107,.45)}
+.ar{color:var(--mute);font-size:18px;line-height:1;text-align:center;transition:opacity .35s}
+.ar small{font-size:11px;display:block}
+.box{border:1px dashed var(--line);border-radius:10px;padding:10px;position:relative}
+.box>.bt{position:absolute;top:-10px;left:10px;background:var(--bg);padding:0 6px;font-size:12px;color:var(--mute)}
+.fan{display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
+.fan>.col{gap:2px}
+/* build-up */
+.build{margin:16px 0}
+.build .off{opacity:0 !important;pointer-events:none}
+.build .fresh{animation:fresh 1.1s}
+@keyframes fresh{0%{transform:scale(.92);box-shadow:0 0 0 6px rgba(78,161,255,.55)}100%{transform:none}}
+.build .caps{min-height:52px;margin-top:10px}
+.build .cap{display:none;margin:0;background:var(--panel);border-radius:8px;padding:10px 14px;border:1px solid var(--line)}
+.build .cap.on{display:block}
+.build .ctl{display:flex;gap:8px;align-items:center;margin-top:8px}
+.build .ctl span{color:var(--mute);font-size:13px}
+/* misc widget bits */
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--panel2);border:1px solid var(--line)}
+.pill.ok{border-color:var(--ok);color:var(--ok)}.pill.bad{border-color:var(--bad);color:var(--bad)}.pill.warn{border-color:var(--warn);color:var(--warn)}
+.cells{display:flex;flex-wrap:wrap;gap:4px}
+.cell{min-width:34px;height:30px;border:1px solid var(--line);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--panel2);padding:0 4px}
+.cell.msg{border-color:var(--msg)}.cell.bad{border-color:var(--bad);color:var(--bad)}.cell.ok{border-color:var(--ok)}.cell.busy{border-color:var(--warn);background:rgba(245,185,66,.18)}
+.meter{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--svc);transition:width .3s}
+.flip{cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:90px}
+.flip .b{display:none;color:var(--mute);margin-top:6px;font-size:14px}
+.flip.open .b{display:block}
+.chk label{display:block;color:var(--text);padding:3px 0}
+.state{display:inline-block;padding:6px 14px;border-radius:8px;font-weight:700;border:2px solid var(--line);margin:2px}
+.state.on.closed{border-color:var(--ok);color:var(--ok)}.state.on.open{border-color:var(--bad);color:var(--bad)}.state.on.half{border-color:var(--warn);color:var(--warn)}
+.wf{position:relative;height:22px;margin:3px 0;font-size:12px}
+.wf i{position:absolute;top:0;height:100%;background:var(--edge);border-radius:4px;opacity:.85}
+.wf span{position:absolute;left:0;top:2px;width:120px;color:var(--mute)}
+.wfwrap{padding-left:125px;position:relative}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:14px}
+</style>
+</head>
+<body>
+<button id="menu" onclick="document.getElementById('side').classList.toggle('open')">☰ Menu</button>
+<aside id="side">
+  <h1>TCP, TLS, HTTP/2, QUIC</h1>
+  <div class="sub">14 chapters · hands-on labs</div>
+  <div id="prog"><i></i></div>
+  <nav id="nav"></nav>
+  <div id="tools"><button onclick="document.body.classList.toggle('light')">Light / dark</button><button onclick="localStorage.removeItem('tcp-tls-done');location.reload()">Reset progress</button></div>
+</aside>
+<main>
+
+<style>
+/* extras for this explainer: tables of state, ladders, time lines, frames */
+.ctab{border-collapse:collapse;font:12.5px ui-monospace,Consolas,monospace;width:100%;margin:4px 0}
+.ctab th,.ctab td{border:1px solid var(--line);padding:3px 7px;vertical-align:top}
+.ctab tr.hl td{background:rgba(78,161,255,.15)}
+.ctab tr.ok td{background:rgba(62,207,142,.13)}
+.ctab tr.badrow td{background:rgba(255,107,107,.13)}
+.ctab .mute,.mute{color:var(--mute)}
+.scrollx{overflow-x:auto;max-width:100%}
+.edges{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:10px 0}
+.ebox{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg);min-width:0}
+.ebox h5{margin:0 0 4px;font-size:13px}
+.trace{font:13px/1.55 ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0;min-height:40px}
+.trace div{padding:1px 0}.trace .bad{color:var(--bad)}.trace .mute{color:var(--mute)}
+.ladder{font:12.5px/1.5 ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:120px;overflow-x:auto}
+.ladder .r{display:grid;grid-template-columns:70px minmax(0,1fr) 150px;gap:6px;align-items:center;margin:3px 0}
+.ladder .r .m{text-align:center;border-bottom:1px solid var(--edge);padding:0 4px;overflow-wrap:anywhere}
+.wf em{position:absolute;right:0;top:2px;color:var(--mute);font-style:normal;font-size:11px;background:var(--panel);padding-left:4px}
+.wf .wfm{position:absolute;top:-3px;width:3px;height:28px;background:var(--text);border-radius:2px}
+.wfaxis{display:flex;justify-content:space-between;font-size:11px;color:var(--mute);border-top:1px solid var(--line);margin-top:4px}
+.frames{max-height:230px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px}
+.frame{border-left:4px solid;padding:2px 8px;margin:3px 0;font:12.5px ui-monospace,Consolas,monospace;display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}
+.frame code{background:none;padding:0;color:var(--msg)}
+.logbars .lb,.lb2{display:grid;grid-template-columns:260px minmax(0,1fr) 90px;gap:10px;align-items:center;margin:6px 0;font-size:14px}
+.logbars .lb>div{height:14px;background:var(--panel2);border-radius:4px;overflow:hidden;background-image:repeating-linear-gradient(90deg,transparent 0 calc(16.66% - 1px),var(--line) calc(16.66% - 1px) 16.66%)}
+.logbars .lb i{display:block;height:100%;border-radius:4px;transition:width .3s}
+.lb2{grid-template-columns:90px minmax(0,1fr) 130px}
+@media(max-width:700px){.logbars .lb{grid-template-columns:1fr 70px}.logbars .lb>div{grid-column:1/3;grid-row:2}.ladder .r{grid-template-columns:55px minmax(0,1fr)}.ladder .r>span:last-child{display:none}}
+</style>
+
+<section class="ch" id="c1" data-title="Two connections, not one">
+<h2>1. Two connections, not one</h2>
+<div class="topics">Covers: notes part 1 §1, §4, "one thing I would change"; part 2 §33, §34 · Sources: Cloudflare docs (TCP connections, page updated 2026-04-20); Cloudflare docs (SSL/TLS modes); AWS Global Accelerator docs (How it works); RFC 7239 (Forwarded header)</div>
+<p class="lead">A CDN is a network of <b>reverse proxies</b>. A reverse proxy is a server that takes the user's request, reads it, and sends its own request to the real server (the <b>origin</b>). So a browser that uses a CDN does not have one connection to the origin. It has a connection to the CDN edge, and the edge has a separate connection to the origin.</p>
+<p>Cloudflare's docs draw it as Visitor ↔ Cloudflare ↔ Origin, with one connection on each side. They say Cloudflare acts "as an intermediary between the user and the origin" and "will open a connection to the origin server" when it cannot answer from its own data centers. AWS Global Accelerator says the same in plain words: it "terminates TCP connections from clients at AWS edge locations and, almost concurrently, establishes a new TCP connection with your endpoints".</p>
+<p>Because the two connections are separate, each one has its own:</p>
+<ul>
+<li><b>Addresses and ports.</b> The origin sees the edge's IP address, not the user's. The CDN passes the user's address in a header, such as <code>Forwarded</code> (RFC 7239) or <code>X-Forwarded-For</code>.</li>
+<li><b>Handshakes.</b> The user's TCP and TLS handshakes happen over the short distance to the edge. The edge's connection to the origin is usually already open.</li>
+<li><b>Protocol.</b> The browser can use HTTP/3 to the edge while the edge uses HTTP/2 or HTTP/1.1 to the origin.</li>
+<li><b>Encryption.</b> TLS ends at the edge. The edge decrypts the request, so it can read the URL and cookies, check its cache and apply security rules. To protect the second leg, the edge must start a new TLS session to the origin.</li>
+</ul>
+<p>This gives a better mental model than "a CDN is a cache near users". A CDN is a distributed reverse proxy that also caches, filters attacks, manages connections, and routes traffic over its own network. The rest of this explainer takes each part in turn, starting at the bottom: what a connection costs.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">Browser<small>Karachi</small></div>
+  <div class="ar" data-s="2">↓ <small>DNS gives one anycast IP; BGP routes to a near PoP</small></div>
+  <div class="n edge" data-s="2">CDN edge (PoP)<small>TLS ends here · DDoS filter · WAF · cache · proxy</small></div>
+  <div class="ar" data-s="3">↓ <small>connection B: pooled, long-lived, HTTP/2 streams</small></div>
+  <div class="n plat" data-s="3">CDN backbone<small>network the CDN controls</small></div>
+  <div class="ar" data-s="4">↓</div>
+  <div class="n data" data-s="4">Regional cache / origin shield<small>cache · collapses misses · own pool</small></div>
+  <div class="ar" data-s="5">↓ <small>HTTP/2 streams on warm connections</small></div>
+  <div class="n edge" data-s="5">Origin load balancer<small>Frankfurt</small></div>
+  <div class="fan" data-s="6"><div class="n svc">App 1</div><div class="n svc">App 2</div><div class="n svc">App 3</div></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The user's browser in Karachi wants a page from an origin in Frankfurt.</p>
+  <p class="cap" data-s="2">The browser connects to a CDN edge near it. TCP and TLS (or QUIC) end here. This is connection A. It is short, so handshakes are fast.</p>
+  <p class="cap" data-s="3">If the edge must go further, it uses connection B. B is a different connection that the edge opened earlier and keeps open. It runs on the CDN's own network.</p>
+  <p class="cap" data-s="4">A middle tier can sit in front of the origin. It caches too, and joins many misses for the same file into one request.</p>
+  <p class="cap" data-s="5">The last hop reaches the origin's load balancer on a few warm connections. Each carries many requests at once.</p>
+  <p class="cap" data-s="6">The load balancer spreads requests over the app servers. No connection goes all the way from the browser to an app server.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="w-legs">
+ <div class="t">Lab: what each leg sees</div>
+ <p class="hint">Pick the protocol on each leg and send a request. The two tables are the state of connection A (browser to edge) and connection B (edge to origin). Watch the addresses: the origin never sees the browser's address or port. Change the protocols: they do not have to match. Break it: set the origin leg to "Flexible" (a real Cloudflare mode). The user still sees a padlock, but the request with its cookie crosses the network to the origin in plain text.</p>
+ <div class="bar"><label>Browser to edge <select id="lg-a"><option value="h3">HTTP/3 over QUIC</option><option value="h2">HTTP/2 over TLS</option><option value="h1">HTTP/1.1 over TLS</option></select></label>
+ <label>Edge to origin <select id="lg-b"><option value="h2">HTTP/2 over TLS</option><option value="h1">HTTP/1.1 over TLS</option><option value="flex">Break it: HTTP/1.1, no TLS ("Flexible")</option></select></label>
+ <button class="pri" id="lg-go">Send POST /cart</button></div>
+ <div class="grid2"><div><b>Connection A</b><table class="ctab" id="lg-ta"></table></div><div><b>Connection B</b><table class="ctab" id="lg-tb"></table></div></div>
+ <div class="log" id="lg-log" style="height:150px"></div>
+</div>
+
+<div class="lab term" data-tool="net" id="lg-real">
+ <div class="t">Lab: two real connections through an nginx edge</div>
+ <p class="hint">A real client (curl) talks to a real nginx edge. The edge talks to a real nginx origin through a proxy (toxiproxy) that adds distance. The origin adds two headers: <code>X-Origin-Proto</code> (the protocol the origin received) and <code>X-Origin-Peer</code> (the address and port that connected to it). Click "Who sees what". Your side says HTTP/2 and shows your own port. The origin says HTTP/1.1 and shows a different address and port: the proxy in front of it, never you. "Addresses" maps the IPs to names. Try "HTTP/1.1 to the edge": your port changes, because curl opened a new connection. The origin still sees the same port: the edge sent your request on the connection it already had open. Two separate connections.</p>
+ <template class="setup">net-setup 100
+legs() { curl -s "$@" -o /dev/null -w "you -> edge:     HTTP/%{http_version}, from your port %{local_port} to %{remote_ip}:%{remote_port}\nedge -> origin:  %header{x-origin-proto}, origin sees the caller as %header{x-origin-peer}\ncache: %header{x-cache}\n" cdn-edge/api/cart; }</template>
+ <template data-label="Who sees what">legs --http2-prior-knowledge</template>
+ <template data-label="HTTP/1.1 to the edge">legs --http1.1</template>
+ <template data-label="Addresses">getent hosts cdn-edge toxiproxy cdn-origin xp-net</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c2" data-title="TCP: the three-way handshake">
+<h2>2. TCP: the three-way handshake</h2>
+<div class="topics">Covers: notes part 2 §1 · Sources: RFC 9293 §3.3.2 (states), §3.4.1 (ISN, socket pair), §3.5 (three-way handshake); RFC 6298 §2.1, §5.5 (RTO 1 s, back off); Linux ip-sysctl docs (tcp_syn_retries, tcp_syn_linear_timeouts)</div>
+<p class="lead">TCP is the protocol that gives two programs a reliable, ordered byte stream over the Internet. Before any data flows, the two sides do a <b>three-way handshake</b>: SYN, SYN-ACK, ACK. It costs one round trip (RTT) before the client can send its request.</p>
+<p>Each side picks an <b>initial sequence number</b> (ISN). Every byte it sends later is numbered from there, so the other side can put bytes in order and ask again for missing ones. RFC 9293 says the ISN is a fresh 32-bit number for each connection, because "There are security issues that result if an off-path attacker is able to predict or guess ISN values". The handshake is how each side tells the other its ISN and gets proof that the other side heard it:</p>
+<ol>
+<li><b>SYN</b>: the client sends its ISN (<code>seq=x</code>). The client is now in state SYN-SENT.</li>
+<li><b>SYN-ACK</b>: the server sends its own ISN (<code>seq=y</code>) and acknowledges the client's (<code>ack=x+1</code>). The server is in SYN-RECEIVED.</li>
+<li><b>ACK</b>: the client acknowledges the server's ISN (<code>ack=y+1</code>). Both are ESTABLISHED. The client can put its first request bytes right behind this ACK.</li>
+</ol>
+<p>RFC 9293 gives the main reason for three messages: "to prevent old duplicate connection initiations from causing confusion". A connection is identified by its <b>socket pair</b>: local IP and port, remote IP and port (often called the 4-tuple). Keep that in mind for chapter 11.</p>
+<h3>What it costs</h3>
+<p>The cost is time, not bytes. With a 120 ms round trip (an example for Karachi to Frankfurt), the client waits 120 ms before its request can leave. With a 15 ms round trip to a nearby edge, it waits 15 ms. That is the first reason to end the connection close to the user.</p>
+<h3>When a handshake packet is lost</h3>
+<p>No data has been sent yet, so TCP has no measured RTT. It uses a timer. RFC 6298: the sender "SHOULD set RTO &lt;- 1 second", and doubles it after each timeout. Linux differs a little. It keeps the first 4 retries at 1 s (<code>tcp_syn_linear_timeouts = 4</code>), then doubles, and gives up after 6 retries (<code>tcp_syn_retries</code>, "131seconds" until the final timeout). So one lost SYN adds about 1 s to the page. That is long compared with a 20 ms handshake.</p>
+
+<div class="lab" id="w-tcp">
+ <div class="t">Lab: a handshake packet by packet</div>
+ <p class="hint">Press "Next" to send or receive one packet. The badges are each side's TCP state. The numbers are the real fields: seq is the sender's byte number, ack is the next byte it expects. The ISNs are random, as in real TCP. Break it: pick a packet to lose. A lost SYN costs the 1 s timer. A lost final ACK costs nothing: the request carries the same acknowledgement.</p>
+ <div class="bar"><label>RTT <input type="range" id="tc-rtt" min="10" max="300" value="120"> <b id="tc-rv"></b></label>
+ <label>Lose <select id="tc-loss"><option value="">nothing</option><option value="syn">Break it: the SYN</option><option value="synack">Break it: the SYN-ACK</option><option value="ack">the final ACK</option></select></label>
+ <button class="pri" id="tc-next">Next</button><button id="tc-all">All</button><button id="tc-reset">Restart</button></div>
+ <div class="bar"><span>Client <span class="state" id="tc-cs"></span></span><span>Server <span class="state" id="tc-ss"></span></span><span id="tc-clock" class="pill"></span></div>
+ <div class="ladder" id="tc-out"></div>
+</div>
+
+<div class="lab term" data-tool="net" id="tc-real">
+ <div class="t">Lab: capture a real handshake</div>
+ <p class="hint">This shell runs in a Linux container. <code>net-setup 100</code> adds 100 ms to every packet it sends, so the round trip to the origin is about 100 ms. "Capture one handshake" runs <code>tcpdump</code> while curl connects. Read the flags: <code>[S]</code> is SYN, <code>[S.]</code> is SYN-ACK, <code>[.]</code> is ACK. Check that the SYN-ACK's <code>ack</code> is the SYN's <code>seq</code> plus 1, and the same for the last ACK. The times show the 100 ms gap: the client's ACK leaves 100 ms after the SYN-ACK came in, because this client adds the delay before it sends.</p>
+ <p class="hint">Break it: "Lose every packet" drops all packets the client sends. <code>ss</code> shows the socket stuck in SYN-SENT once a second: <code>retrans</code> counts the resent SYNs, <code>timer</code> shows the time to the next try, <code>rto</code> is the timeout in ms. The count goes up about once a second: Linux keeps the first 4 retries at 1 s. "Closed port" connects to a port where nothing listens: the server answers with <code>[R.]</code> (reset), and curl fails in one round trip. Times are on your machine and will vary.</p>
+ <template class="setup">net-setup 100</template>
+ <template data-label="Capture one handshake">timeout 6 tcpdump -nn -S -i eth0 -c 3 'tcp port 443' 2>/dev/null &amp; sleep 1; curl -s -o /dev/null --cacert /certs/origin.pem https://origin.acmeshop.com/api/x; wait</template>
+ <template data-label="Break it: lose every packet">net-setup 100 100; curl -s -o /dev/null --connect-timeout 6 https://origin.acmeshop.com/ &amp; for i in 1 2 3 4 5; do sleep 1; echo "after ${i}s: $(ss -tnoi state syn-sent | grep -o 'timer:([^)]*)\|rto:[0-9]*\|retrans:[0-9/]*' | tr '\n' ' ')"; done; wait; net-setup 100</template>
+ <template data-label="Closed port">timeout 6 tcpdump -nn -i eth0 -c 2 'tcp port 444' 2>/dev/null &amp; sleep 1; curl -sS https://origin.acmeshop.com:444/ 2>&amp;1; wait</template>
+ <template data-label="Kernel settings">sysctl net.ipv4.tcp_syn_retries net.ipv4.tcp_syn_linear_timeouts</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c3" data-title="TLS 1.3: the second handshake">
+<h2>3. TLS 1.3: the second handshake</h2>
+<div class="topics">Covers: notes part 2 §2 · Sources: RFC 8446 §1 (three properties), §2 Figure 1 (message flow, {} and [] marks), §2.1 and §4.1.4 (HelloRetryRequest), §4.4.2 (server_name); RFC 8744 §2 (SNI in cleartext); Cloudflare blog "RFC 8446 aka TLS 1.3" (TLS 1.2 two round trips); curl man page (time_connect, time_appconnect)</div>
+<p class="lead">TLS is the protocol that makes a TCP connection secure. HTTPS is HTTP inside TLS. After the TCP handshake, client and server do a TLS handshake. In TLS 1.3 it takes one more round trip. TLS 1.2 took two.</p>
+<p>RFC 8446 lists what TLS gives:</p>
+<ul>
+<li><b>Authentication</b>: "The server side of the channel is always authenticated". The client gets proof it talks to the real <code>shop.acmeshop.com</code>.</li>
+<li><b>Confidentiality</b>: data "is only visible to the endpoints".</li>
+<li><b>Integrity</b>: data "cannot be modified by attackers without detection".</li>
+</ul>
+<h3>How one round trip is enough</h3>
+<p>The client guesses which key exchange the server will accept (today usually X25519, or X25519 combined with the post-quantum ML-KEM). It puts its public key share in the very first message, the <b>ClientHello</b>. The server answers with its own key share in the <b>ServerHello</b>. Now both sides can compute the same secret, and derive keys from it. Everything after the ServerHello is encrypted: the server's certificate, its signature that proves it owns the certificate's key, and its Finished message. The client checks all of it, sends its own Finished, and sends the HTTP request in the same flight.</p>
+<p>TLS 1.2 first agreed on the algorithms and only then exchanged keys, so it needed two round trips. Cloudflare's TLS 1.3 post: latency can "drop from two round-trips to only one round-trip".</p>
+<h3>What the certificate check covers</h3>
+<p>The client checks that the certificate names the host it asked for, that it chains up to a certificate authority the client trusts, that it is within its dates, and that the CertificateVerify signature is valid. If one check fails, the client stops with an alert. No request is sent.</p>
+<h3>What a watcher on the path still sees</h3>
+<p>The ClientHello is not encrypted. It carries the <b>server_name</b> (SNI) extension, so the server can pick the right certificate. RFC 8744: "The SNI extension is carried in cleartext". In TLS 1.3 the certificate is hidden, because "All handshake messages after the ServerHello are now encrypted" (RFC 8446 §1.2). In TLS 1.2 the certificate went in the clear.</p>
+<h3>When the guess is wrong</h3>
+<p>If the server does not support the group of the client's key share, it sends a <b>HelloRetryRequest</b> naming a group it does support. The client sends a second ClientHello. That costs one more round trip (RFC 8446 §4.1.4).</p>
+
+<div class="lab" id="w-tls">
+ <div class="t">Lab: TLS flight by flight, with each side's keys</div>
+ <p class="hint">Press "Next flight". For each message, the table shows which keys each side holds at that moment, and what a watcher on the network can read. Messages in braces <code>{ }</code> are encrypted with handshake keys, in brackets <code>[ ]</code> with application keys (RFC 8446 notation). The clock counts the TCP round trip too. Compare TLS 1.3 with TLS 1.2: in 1.2 the watcher reads the certificate. Break it: "HelloRetryRequest" adds a round trip. "Wrong name" stops before any request is sent.</p>
+ <div class="bar"><label>Case <select id="tl-m"><option value="t13">TLS 1.3</option><option value="hrr">Break it: TLS 1.3 with HelloRetryRequest</option><option value="t12">TLS 1.2</option><option value="bad">Break it: certificate for another name</option></select></label>
+ <label>RTT <input type="range" id="tl-rtt" min="10" max="300" value="120"> <b id="tl-rv"></b></label>
+ <button class="pri" id="tl-next">Next flight</button><button id="tl-all">All</button><button id="tl-reset">Restart</button></div>
+ <div class="scrollx"><table class="ctab" id="tl-tab"></table></div>
+ <div id="tl-stats"></div>
+</div>
+
+<div class="lab term" data-tool="net" id="tl-real">
+ <div class="t">Lab: a real TLS 1.3 handshake with openssl</div>
+ <p class="hint">The origin is nginx with TLS 1.3 only. Its certificate is for <code>origin.acmeshop.com</code>, signed by itself, and the client trusts it through <code>-CAfile</code>. "Handshake messages" runs <code>openssl s_client -msg</code>. <code>&gt;&gt;&gt;</code> is a message the client sent, <code>&lt;&lt;&lt;</code> one it received. You see one ClientHello, then the server's ServerHello, EncryptedExtensions, Certificate, CertificateVerify and Finished in one flight, then the client's Finished. The last lines show the key exchange group and the cipher. "Timings" shows when each layer finished: TCP about one round trip after the name lookup, TLS one more, the first response byte one more.</p>
+ <p class="hint">Break it: "HelloRetryRequest" makes the client offer a key share the server will not take first. You see two ClientHellos. "TLS 1.2 only client" fails with alert 70, protocol version. "Wrong name" connects to the right server by another name. The certificate check fails and no request is sent. Times are on your machine and will vary.</p>
+ <template class="setup">net-setup 100
+o() { openssl s_client -connect origin.acmeshop.com:443 -servername origin.acmeshop.com -CAfile /certs/origin.pem "$@" 2&gt;&amp;1; }</template>
+ <template data-label="Handshake messages">o -msg | grep -E 'Handshake|^Negotiated|^New|^Verification:'</template>
+ <template data-label="Timings">curl -s -o /dev/null --cacert /certs/origin.pem -w "name lookup done  %{time_namelookup}s\nTCP done          %{time_connect}s\nTLS done          %{time_appconnect}s\nfirst byte        %{time_starttransfer}s\n" https://origin.acmeshop.com/api/x</template>
+ <template data-label="Break it: HelloRetryRequest">o -msg -groups ffdhe2048:x25519 | grep -E 'Hello|Temp Key|^New'</template>
+ <template data-label="Break it: TLS 1.2 only client">o -tls1_2 | grep -E 'alert|^New'</template>
+ <template data-label="Break it: wrong name">curl -sS --cacert /certs/origin.pem https://cdn-origin/api/x</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c4" data-title="Resumption and 0-RTT">
+<h2>4. Resumption and 0-RTT</h2>
+<div class="topics">Covers: notes part 2 §2 (resumed connections, 0-RTT and replay) · Sources: RFC 8446 §2.2 (PSK, NewSessionTicket, no Certificate), §2.3 and §8 (0-RTT, replay), §4.6.1; RFC 8470 (425 Too Early); nginx docs (ssl_early_data, $ssl_early_data); OpenSSL docs (SSL_read_early_data, replay protection)</div>
+<p class="lead">A client that connected to a server before can skip most of the TLS handshake. After a full handshake, the server gives the client a <b>session ticket</b>. Next time, the client shows the ticket and both sides reuse the secret. With <b>0-RTT</b>, the client also sends its request in the very first flight.</p>
+<h3>Resumption</h3>
+<p>RFC 8446 §2.2: after the handshake, "the server can send the client a PSK identity that corresponds to a unique key derived from the initial handshake". PSK means pre-shared key. The message is <b>NewSessionTicket</b>. On the next connection the client puts the ticket in its ClientHello. "As the server is authenticating via a PSK, it does not send a Certificate or a CertificateVerify message." That saves bytes and the signature work, but it is still one round trip.</p>
+<h3>0-RTT early data</h3>
+<p>With the ticket, the client can encrypt a request right away and send it next to the ClientHello. The server can answer before the handshake finishes. The cost is security. RFC 8446 §2.3: this data "is not forward secret" and "There are no guarantees of non-replay between connections." Anyone who copies the packets can send them again, and the server may run the request again.</p>
+<p>The defences:</p>
+<ul>
+<li><b>Single-use tickets</b>: the server records which tickets it has seen and rejects early data on a second use. OpenSSL does this by default, but only with its server session cache. nginx turns it off: "OpenSSL built-in replay protection is disabled, because it interferes with session resumption."</li>
+<li><b>Only safe requests</b>: send early data only for requests that are safe to run twice, such as GET. nginx sets <code>$ssl_early_data</code> to <code>1</code> for such requests, so the app can refuse them. HTTP has a status for that: <b>425 Too Early</b> (RFC 8470).</li>
+</ul>
+
+<div class="lab" id="w-0rtt">
+ <div class="t">Lab: tickets, early data and a replay</div>
+ <p class="hint">The left box is the client's ticket store. The right box is the server: tickets it has seen, and the number of orders it has run. First do a full handshake to get a ticket. Then resume, then send early data. Break it: send <code>POST /order</code> as early data, then let the attacker replay the copied packets. Watch the order count. Then turn on a defence and try again.</p>
+ <div class="bar"><button id="zr-full">Full handshake</button><button id="zr-res">Resume (1 RTT)</button><button id="zr-get">0-RTT: GET /products</button><button id="zr-post">0-RTT: POST /order</button><button class="dan" id="zr-rep">Break it: attacker replays the last 0-RTT flight</button><button id="zr-reset">Reset</button></div>
+ <div class="bar"><label><input type="checkbox" id="zr-single"> Server: single-use tickets</label><label><input type="checkbox" id="zr-425"> Server: 425 Too Early for unsafe methods</label></div>
+ <div class="grid2"><div class="ebox"><h5>Client ticket store</h5><div id="zr-cli"></div></div><div class="ebox"><h5>Server</h5><div id="zr-srv"></div></div></div>
+ <div class="log" id="zr-log" style="height:150px"></div>
+</div>
+
+<div class="lab term" data-tool="net" id="zr-real">
+ <div class="t">Lab: real resumption and a real replay</div>
+ <p class="hint">Port 8443 on the origin is nginx with <code>ssl_early_data on</code>. It answers with the method, <code>early data: 1</code> if the request came as 0-RTT data, and the connection number. Run the steps in order. Step 1 saves the ticket to a file: see "New" and a Certificate message. Step 2 uses it: "Reused" and no Certificate. Step 3 sends <code>POST /order</code> as early data: "Early data was accepted" and <code>early data: 1</code>.</p>
+ <p class="hint">Break it: "Replay" sends the same ticket and the same early POST twice, as an attacker who copied them would. nginx runs the POST both times, on two connections. That is the replay RFC 8446 warns about. Real servers must refuse unsafe early requests (425) or keep single-use tickets.</p>
+ <template class="setup">net-setup 100
+printf 'POST /order HTTP/1.1\r\nHost: origin.acmeshop.com\r\nContent-Length: 0\r\n\r\n' &gt; /tmp/order
+t() { (sleep 0.5) | openssl s_client -connect origin.acmeshop.com:8443 -CAfile /certs/origin.pem "$@" 2&gt;&amp;1; }
+t -sess_out /tmp/ticket &gt;/dev/null   # a ticket exists even if you start with "Break it"</template>
+ <template data-label="1. Full handshake, save ticket">t -msg -sess_out /tmp/ticket | grep -E '^(New|Reused)|, (ClientHello|ServerHello|Certificate|NewSessionTicket)$'</template>
+ <template data-label="2. Resume with the ticket">t -msg -sess_in /tmp/ticket | grep -E '^(New|Reused)|, (ClientHello|ServerHello|Certificate|NewSessionTicket)$'</template>
+ <template data-label="3. 0-RTT POST">t -sess_in /tmp/ticket -early_data /tmp/order | grep -E '^Reused|Early data|done by'</template>
+ <template data-label="Break it: replay">for i in 1 2; do echo "--- copy $i"; t -sess_in /tmp/ticket -early_data /tmp/order | grep -E 'Early data|done by'; done</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c5" data-title="Keep-alive: pay the handshakes once">
+<h2>5. Keep-alive: pay the handshakes once</h2>
+<div class="topics">Covers: notes part 1 §2; part 2 §3, §4 · Sources: RFC 9112 §9.3 (persistent connections), §9.6 (Connection: close); RFC 9293 §3.3.2, §3.4.2, §3.6.1 (TIME-WAIT, 2 MSL); Linux include/net/tcp.h (TCP_TIMEWAIT_LEN 60 s); curl man page (num_connects)</div>
+<p class="lead">A <b>persistent connection</b> (keep-alive) is a connection that stays open after a response, so the next request can use it. It pays the TCP and TLS handshakes once instead of once per request.</p>
+<p>RFC 9112 §9.3: "HTTP/1.1 defaults to the use of "persistent connections", allowing multiple requests and responses to be carried over a single connection." Either side can end it. <code>Connection: close</code> "is defined as a signal that the sender will close this connection after completion of the response".</p>
+<p>A page with 6 files over TLS 1.3 at 120 ms RTT shows the difference. With a new connection per file, each file costs TCP (1 RTT) + TLS (1 RTT) + request (1 RTT) = 360 ms. With keep-alive, only the first does. The other five cost 120 ms each.</p>
+<h3>The cost after close: TIME-WAIT</h3>
+<p>Closing has a cost too. The side that closes first keeps the socket in <b>TIME-WAIT</b>. RFC 9293 §3.6.1: it "MUST linger in the TIME-WAIT state for a time 2xMSL". This makes sure late packets from the old connection do not land in a new one that reuses the same ports. The RFC takes MSL as 2 minutes. Linux uses a fixed 60 s. While a socket waits, its local port stays taken. A client that opens and closes thousands of connections to one server can run out of ports. Keep-alive avoids that, because there are few closes.</p>
+<h3>Keep-alive and a connection pool are different things</h3>
+<p><b>Keep-alive</b> is a property of one connection: do not close after the response. A <b>connection pool</b> is a manager that holds many kept-alive connections to one destination, hands an idle one to each new request, opens more when all are busy, and closes extras. A CDN edge has a pool per origin. Chapter 6 is about the pool.</p>
+
+<div class="lab" id="w-ka">
+ <div class="t">Lab: 6 files, with and without keep-alive</div>
+ <p class="hint">Each row is one file on a time line: orange is TCP and TLS handshakes, blue is the request and response. The counters show handshakes paid and sockets left in TIME-WAIT. Change the RTT: the gap grows with distance. Break it: the user waits 90 s before file 4, and the server closes idle connections after 60 s. File 4 pays the handshakes again.</p>
+ <div class="bar"><label>Mode <select id="ka-m"><option value="close">New connection per file (Connection: close)</option><option value="ka">Keep-alive, one connection</option><option value="idle">Break it: keep-alive, 90 s pause before file 4</option></select></label>
+ <label>RTT <input type="range" id="ka-rtt" min="10" max="300" value="120"> <b id="ka-rv"></b></label></div>
+ <div class="wfwrap" id="ka-wf"></div>
+ <div id="ka-stats"></div>
+</div>
+
+<div class="lab term" data-tool="net" id="ka-real">
+ <div class="t">Lab: count real connections and TIME-WAIT sockets</div>
+ <p class="hint"><code>num_connects</code> is curl's count of new connections for a transfer: 0 means it used an open one. <code>X-Origin-Conn</code> is nginx's serial number for the connection. "3 files, one curl run": the first opens a connection and pays about 0.2 s for TCP and TLS. The next two show 0 new connections, the same connection number, and about one round trip each. "3 files with Connection: close": each opens a new connection.</p>
+ <p class="hint">Break it: "50 separate runs" starts curl 50 times. Each run opens a connection and closes it on exit, so the client holds the closed sockets in TIME-WAIT. <code>ss</code> counts them (50, plus any left from earlier runs) and shows the timer counting down from 60 s. "50 requests, one run" sends 50 requests on one connection. Wait a minute and count again: the TIME-WAIT sockets are gone. Times are on your machine and will vary.</p>
+ <template class="setup">net-setup 100
+U=https://origin.acmeshop.com; C='--cacert /certs/origin.pem'
+tw() { echo "client sockets in TIME-WAIT: $(ss -Htan state time-wait | wc -l)"; ss -tno state time-wait | sed -n 2p; }</template>
+ <template data-label="3 files, one curl run">curl -s $C -o /dev/null -o /dev/null -o /dev/null -w "new connections %{num_connects}  TCP+TLS done at %{time_appconnect}s  total %{time_total}s  connection #%header{x-origin-conn}\n" $U/static/logo.svg $U/static/app.js $U/api/a</template>
+ <template data-label="3 files with Connection: close">for f in static/logo.svg static/app.js api/a; do curl -s $C -H 'Connection: close' -o /dev/null -w "new connections %{num_connects}  TCP+TLS done at %{time_appconnect}s  total %{time_total}s  connection #%header{x-origin-conn}\n" $U/$f; done</template>
+ <template data-label="Break it: 50 separate runs">for i in $(seq 50); do curl -s $C -o /dev/null $U/api/x; done; tw</template>
+ <template data-label="50 requests, one run">curl -s $C $(for i in $(seq 50); do printf -- '-o /dev/null '; done) -w '%{num_connects}' $(for i in $(seq 50); do printf "$U/api/x "; done) | tr -d 0 | wc -c | xargs echo "new connections for 50 requests:"</template>
+ <template data-label="Count TIME-WAIT now">tw</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+<section class="ch" id="c6" data-title="Pools: many users, few origin connections">
+<h2>6. Pools: many users, few origin connections</h2>
+<div class="topics">Covers: notes part 1 §2, §4; part 2 §4, §5, §9, §28 · Sources: Little's law (L = λW, J. D. C. Little, 1961); RFC 9113 §6.5.2 (SETTINGS_MAX_CONCURRENT_STREAMS, at least 100 recommended); Cloudflare docs (HTTP/2 to origin); AWS CloudFront docs (persistent connections with origin servers, HTTP/1.1 to custom origins); nginx docs (upstream keepalive)</div>
+<p class="lead">The edge keeps a <b>connection pool</b> for each origin: a set of open, kept-alive connections. A request that must go to the origin takes an idle one, so it pays no handshake. The number of origin connections then depends on how many requests are in flight to the origin, not on how many users are online.</p>
+<p>The two counts are not related. 10,000 users can each hold a connection to the edge, and the edge can still need only 20 to the origin. Three things cut the number down:</p>
+<ol>
+<li><b>Most user connections are idle.</b> A user reads the page between clicks. Their connection sends nothing most of the time.</li>
+<li><b>Hits need no origin connection.</b> Only misses and requests that cannot be cached (POST, private pages) go on.</li>
+<li><b>Each origin request holds a connection only while it is in flight.</b> Little's law gives the count: requests in flight = arrival rate × time each request takes. 200 requests per second at 50 ms each is 10 in flight.</li>
+</ol>
+<p>On HTTP/1.1, one connection carries one request at a time, so 10 in flight needs 10 connections. On HTTP/2, one connection carries many requests at once as streams, up to the server's <code>SETTINGS_MAX_CONCURRENT_STREAMS</code> (RFC 9113 recommends at least 100). So 10 in flight fits on one connection.</p>
+<p>This protects the origin from connection overload: fewer sockets, much less TLS handshake work, and no handshake delay on each request. CloudFront "keeps persistent connections with origin servers so objects are fetched from the origins as quickly as possible". The CDN explainer has a real nginx pool to try: <a href="cdn-explained.html#c9">CDNs, chapter 9</a>.</p>
+<h3>Pools on every hop</h3>
+<p>The same idea repeats on each hop. The edge pools connections to a regional tier, the regional tier to an origin shield, the shield to the origin's load balancer, and the load balancer to the app servers. Each hop is its own connection with its own pool. None of them stretches end to end.</p>
+<h3>Where it goes wrong</h3>
+<p>Little's law works in both directions. If the origin slows down, each request holds its connection longer, so more are in flight at once. On HTTP/1.1 the edge then opens more connections. A slow origin gets more connections exactly when it can handle fewer. Origin limits, timeouts and HTTP/2 to the origin keep this in check.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="row" data-s="1"><div class="n client">user 1</div><div class="n client">user 2</div><div class="n client">…</div><div class="n client">user 10,000</div></div>
+  <div class="ar" data-s="1">↓ 10,000 connections, most idle</div>
+  <div class="n edge" data-s="1">Edge</div>
+  <div class="n data" data-s="2">Cache: hits stop here</div>
+  <div class="ar" data-s="3">↓ <small>only misses and uncacheable requests, while in flight</small></div>
+  <div class="row" data-s="3"><div class="n svc">conn 1</div><div class="n svc">conn 2</div><div class="n svc">…</div><div class="n svc">conn 20</div></div>
+  <div class="n svc" data-s="4">Origin<small>20 warm connections, thousands of requests on them</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">Every user holds a connection to the edge. That is the edge's problem, and edges are built for it.</p>
+  <p class="cap" data-s="2">Most requests are hits. They never leave the edge.</p>
+  <p class="cap" data-s="3">The rest take a pooled connection only while in flight. The pool size follows requests in flight, not users.</p>
+  <p class="cap" data-s="4">The origin sees a few long-lived connections that already passed their handshakes.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="w-conc">
+ <div class="t">Lab: from users to origin connections</div>
+ <p class="hint">Set the traffic. The figures follow Little's law: in flight = origin requests per second × origin time. HTTP/1.1 needs one connection per request in flight. HTTP/2 needs one per 100 streams. The bars use a log scale, so each grid line is 10 times the last. All numbers are examples. Break it: make the origin slow, or purge the cache. Watch the HTTP/1.1 connection count.</p>
+ <div class="bar"><label>Users online <input type="range" id="cc-u" min="2" max="6" step="0.1" value="4"> <b id="cc-uv"></b></label>
+ <label>Requests per user per minute <input type="range" id="cc-r" min="1" max="60" value="6"> <b id="cc-rv"></b></label></div>
+ <div class="bar"><label>Cache hit ratio <input type="range" id="cc-h" min="0" max="99" value="90"> <b id="cc-hv"></b></label>
+ <label>Origin time <input type="range" id="cc-t" min="10" max="3000" value="50"> <b id="cc-tv"></b></label>
+ <label>To origin <select id="cc-p"><option value="h1">HTTP/1.1</option><option value="h2">HTTP/2, 100 streams</option></select></label></div>
+ <div class="bar"><button class="dan" id="cc-slow">Break it: origin slows to 2 s</button><button class="dan" id="cc-purge">Break it: cache purged (0% hits)</button><button id="cc-norm">Back to normal</button></div>
+ <div id="cc-bars"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c7" data-title="HTTP/1.1: one response at a time">
+<h2>7. HTTP/1.1: one response at a time</h2>
+<div class="topics">Covers: notes part 1 §3; part 2 §6 · Sources: RFC 9112 §9.3 (persistent), §9.3.2 (pipelining, responses in order), §9.4 (no fixed connection limit, head-of-line blocking); RFC 9113 §1; MDN "Connection management in HTTP/1.x" (6 parallel connections)</div>
+<p class="lead">An HTTP/1.1 connection carries one response at a time, in order. If a large or slow response is first, every request behind it on that connection waits. This is <b>head-of-line blocking</b> at the HTTP level.</p>
+<p>HTTP/1.1 has <b>pipelining</b>: the client may send several requests without waiting. But the server "MUST send the corresponding responses in the same order that the requests were received" (RFC 9112 §9.3.2). The bytes of one response are not marked with which request they belong to, so they cannot mix. A slow first response still blocks the rest. Browsers turned pipelining off.</p>
+<p>The fix browsers used was more connections. RFC 9112 §9.4: "Multiple connections are typically used to avoid the "head-of-line blocking" problem". The RFC gives no number, but MDN says browsers commonly use "6 parallel connections" per host. That works, but each connection pays its own handshakes, its own slow start, its own memory and socket on both ends, and its own congestion control, which compete with each other.</p>
+<p>A proxy has the same problem towards the origin. With HTTP/1.1, 300 requests in flight to the origin need 300 connections.</p>
+
+<div class="lab" id="w-hol1">
+ <div class="t">Lab: a 2 MB image ahead of a tiny JSON</div>
+ <p class="hint">Five requests: A is a big image, B is a 2 KB JSON the page needs first, C to E are small files. Each row is one request on a time line: grey is waiting, orange handshakes, blue the response. The link is 20 Mbit/s and shared by everything on it. Compare when B finishes in each mode. Break it: pipelining sends all requests at once, but B still comes after A. Separate connections free B, but each pays its own handshakes. Numbers are examples.</p>
+ <div class="bar"><label>Mode <select id="h1-m"><option value="serial">1 connection, one at a time</option><option value="pipe">Break it: 1 connection, pipelined</option><option value="six">Up to 6 connections (one per request)</option></select></label>
+ <label>RTT <input type="range" id="h1-rtt" min="10" max="300" value="80"> <b id="h1-rv"></b></label></div>
+ <div class="wfwrap" id="h1-wf"></div>
+ <div id="h1-stats"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c8" data-title="HTTP/2: frames and streams">
+<h2>8. HTTP/2: frames and streams</h2>
+<div class="topics">Covers: notes part 1 §3; part 2 §7, §8, §9 · Sources: RFC 9113 §4.1 (frame header), §4.2 (frame size), §5 (streams), §5.1.1 (odd stream IDs, stream 0), §6 (frame types), §6.4 (RST_STREAM), §6.5.2, §6.8 (GOAWAY), §6.9.2 (initial window 65,535); RFC 7541 (HPACK); curl verbose output</div>
+<p class="lead">HTTP/2 cuts every request and response into <b>frames</b>. Each frame carries the number of the <b>stream</b> it belongs to. A stream is one request and its response. Frames from many streams can be mixed on one connection, and the receiver sorts them back by stream number. This is <b>multiplexing</b>.</p>
+<p>RFC 9113 §5: "A single HTTP/2 connection can contain multiple concurrently open streams, with either endpoint interleaving frames from multiple streams."</p>
+<h3>The frame header</h3>
+<p>Every frame starts with the same 9 bytes (RFC 9113 §4.1):</p>
+<table>
+<tr><th>Field</th><th>Size</th><th>Meaning</th></tr>
+<tr><td>Length</td><td>24 bits</td><td>payload size. At most 16,384 bytes unless the receiver allows more</td></tr>
+<tr><td>Type</td><td>8 bits</td><td>DATA (0x0), HEADERS (0x1), RST_STREAM (0x3), SETTINGS (0x4), GOAWAY (0x7), WINDOW_UPDATE (0x8), and others</td></tr>
+<tr><td>Flags</td><td>8 bits</td><td>for example END_STREAM (0x1): the sender is done with this stream</td></tr>
+<tr><td>Reserved + Stream ID</td><td>1 + 31 bits</td><td>which stream. 0 means the connection as a whole</td></tr>
+</table>
+<p>Client streams use odd numbers: 1, 3, 5. Server streams use even numbers. Stream 0 is for connection control, such as SETTINGS (§5.1.1). Headers are compressed with HPACK (RFC 7541), so repeated headers such as cookies cost a few bytes after the first request.</p>
+<h3>Limits and controls</h3>
+<ul>
+<li><b>Concurrent streams.</b> Each side announces <code>SETTINGS_MAX_CONCURRENT_STREAMS</code>. A request past the limit waits, or the proxy opens another connection.</li>
+<li><b>Flow control.</b> Each stream and the connection start with a 65,535-byte window (§6.9.2). The receiver opens it with WINDOW_UPDATE. So a fast stream cannot fill the receiver's memory.</li>
+<li><b>Cancel one stream.</b> RST_STREAM ends one stream. "A stream error ... does not affect processing of other streams" (§5.4.2). On HTTP/1.1, cancelling a request means closing the connection.</li>
+<li><b>Close politely.</b> GOAWAY tells the peer to start no new streams, while open ones finish. Servers use it before a restart.</li>
+</ul>
+
+<div class="lab" id="w-h2">
+ <div class="t">Lab: three requests on one connection</div>
+ <p class="hint">Press "Next frame". The top row is the wire: every frame with its 9-byte header in hex, then decoded. Below, each box is one stream: every frame is sorted into it by stream ID (→ client to server, ← server to client; H is HEADERS, D is DATA with its length). Frames from streams 1, 3 and 5 take turns, and no response waits for another to finish. Try "Cancel stream 3": one RST_STREAM frame, and the other streams go on. Break it: set max concurrent streams to 1. Now streams 3 and 5 wait, the same as HTTP/1.1. Numbers are examples.</p>
+ <div class="bar"><label>Max concurrent streams <select id="h2-max"><option value="100">100</option><option value="1">Break it: 1</option></select></label>
+ <button class="pri" id="h2-next">Next frame</button><button id="h2-all">All</button><button id="h2-rst">Cancel stream 3 (RST_STREAM)</button><button id="h2-reset">Restart</button></div>
+ <div class="frames" id="h2-wire"></div>
+ <div class="edges" id="h2-bufs"></div>
+</div>
+
+<div class="lab term" data-tool="net" id="h2-real">
+ <div class="t">Lab: stream IDs and connection counts with curl</div>
+ <p class="hint">"3 files over HTTP/2" asks curl to fetch three files in parallel and prints its verbose log. One "Connected to" line, then streams <code>[1]</code>, <code>[3]</code>, <code>[5]</code> opened on the same connection: odd numbers, as the RFC says. "HTTP/1.1 vs HTTP/2" fetches 4 files in parallel each way and prints the new connections and nginx's connection number per file. HTTP/1.1 opens 4 connections. HTTP/2 opens 1 and shows the same connection number 4 times.</p>
+ <template class="setup">net-setup 100
+U=https://origin.acmeshop.com; C='--cacert /certs/origin.pem'
+four() { curl -s $C "$@" --parallel -o /dev/null -o /dev/null -o /dev/null -o /dev/null -w "  %{url}  new connections: %{num_connects}  connection #%header{x-origin-conn}\n" $U/api/1 $U/api/2 $U/api/3 $U/api/4; }</template>
+ <template data-label="3 files over HTTP/2">curl -sv $C --http2 --parallel -o /dev/null -o /dev/null -o /dev/null $U/static/logo.svg $U/static/app.js $U/api/a 2&gt;&amp;1 | grep -E 'Connected to|OPENED stream|Re-using'</template>
+ <template data-label="HTTP/1.1 vs HTTP/2">echo HTTP/1.1:; four --http1.1 --parallel-immediate; echo HTTP/2:; four --http2</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c9" data-title="TCP head-of-line blocking">
+<h2>9. TCP head-of-line blocking</h2>
+<div class="topics">Covers: notes part 2 §10, §13 · Sources: RFC 9113 §1 ("TCP head-of-line blocking is not addressed"); RFC 9114 §1.1; RFC 9000 §13; RFC 9293 (in-order delivery); Linux nstat counters</div>
+<p class="lead">HTTP/2 removed blocking between responses, but only at the HTTP level. Underneath, all streams share one TCP byte stream, and TCP hands bytes to HTTP/2 strictly in order. If one TCP segment is lost, every byte after it waits for the resend, even bytes of other streams that arrived fine.</p>
+<p>TCP's receiver keeps a number: the next byte it expects. Segments that arrive after a gap go into a buffer. They are not delivered until the missing segment arrives and fills the gap. TCP does not know that the held bytes belong to stream 3 and the lost ones to stream 1. It only sees bytes.</p>
+<p>RFC 9113 §1 says so directly: "TCP head-of-line blocking is not addressed by this protocol." RFC 9114 §1.1 describes the effect: "a lost or reordered packet causes all active transactions to experience a stall regardless of whether that transaction was directly impacted by the lost packet."</p>
+<p>The loss is recovered in about one round trip if later packets keep coming (the receiver's duplicate ACKs tell the sender), or after the retransmission timer if not. With many streams on one connection, one loss now stalls all of them. With six HTTP/1.1 connections, one loss stalls only one. So on lossy networks such as mobile and busy Wi-Fi, HTTP/2 can do worse than HTTP/1.1 with several connections.</p>
+
+<div class="lab" id="w-hol">
+ <div class="t">Lab: lose one segment</div>
+ <p class="hint">Nine segments carry frames of streams A, B and C in turn. Click a segment to lose it, then press "Send". The receiver box shows TCP's state: next expected segment and the segments it holds. The bars show what each stream has received. In "HTTP/2 over TCP", all three streams stop at the gap. Switch to "HTTP/3 over QUIC": only the stream that lost data waits. Times are from the model: one segment every 10 ms, the resend arrives one RTT after the loss is noticed.</p>
+ <div class="bar"><label>Transport <select id="hb-m"><option value="tcp">HTTP/2 over TCP</option><option value="quic">HTTP/3 over QUIC</option></select></label>
+ <label>RTT <input type="range" id="hb-rtt" min="20" max="300" value="100"> <b id="hb-rv"></b></label>
+ <button class="pri" id="hb-go">Send</button></div>
+ <div class="cells" id="hb-segs"></div>
+ <div class="ebox" style="margin-top:8px"><h5>Receiver</h5><div id="hb-rx" class="mono"></div></div>
+ <div id="hb-bars"></div>
+</div>
+
+<div class="lab term" data-tool="net" id="hb-real">
+ <div class="t">Lab: real loss, real resends</div>
+ <p class="hint">The client uploads 2 MB to the origin. The kernel counter <code>TcpRetransSegs</code> counts segments TCP had to send again. With no loss, it stays at 0. Break it: "5% loss" drops 1 in 20 packets the client sends. Now TCP resends dozens of segments and the upload takes longer. Every resend holds back all bytes behind it, whatever stream they belong to. Times are on your machine and will vary.</p>
+ <template class="setup">net-setup 100
+head -c 2000000 /dev/urandom &gt; /tmp/up.bin
+up() { a=$(nstat -az TcpRetransSegs | awk '/Retrans/{print $2}'); curl -s --cacert /certs/origin.pem --data-binary @/tmp/up.bin -o /dev/null -w "upload 2 MB: %{time_total}s" https://origin.acmeshop.com:8443/upload; b=$(nstat -az TcpRetransSegs | awk '/Retrans/{print $2}'); echo "   segments sent again: $((b-a))"; }</template>
+ <template data-label="No loss">net-setup 100 0; up</template>
+ <template data-label="Break it: 5% loss">net-setup 100 5; up; net-setup 100 0</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c10" data-title="QUIC and HTTP/3">
+<h2>10. QUIC and HTTP/3</h2>
+<div class="topics">Covers: notes part 2 §11, §12, §14 · Sources: RFC 9000 §7, §13 (combined handshake, CRYPTO frames, loss per stream); RFC 9001 §1, §2.1, §4, §5.4 (TLS in QUIC, 1-RTT and 0-RTT, header protection); RFC 9114 §1.2, §3.1, §3.1.1 (HTTP/3, Alt-Svc, fall back to TCP); RFC 9460 (HTTPS DNS record, alpn)</div>
+<p class="lead">QUIC is a transport protocol that runs on UDP and replaces TCP for HTTP/3. It is not "HTTP over plain UDP". QUIC does its own reliability, resending, congestion control, streams and encryption. HTTP/3 is HTTP mapped onto QUIC streams.</p>
+<div class="build">
+ <div class="stage row">
+  <div class="col" data-s="1"><div class="n svc">HTTP/2<small>streams, frames</small></div><div class="n edge">TLS 1.3</div><div class="n edge">TCP<small>one ordered byte stream</small></div><div class="n plat">IP</div></div>
+  <div class="col" data-s="2"><div class="n svc">HTTP/3<small>requests on QUIC streams</small></div><div class="n edge">QUIC<small>streams · resend · congestion control · TLS 1.3 inside</small></div><div class="n plat">UDP</div><div class="n plat">IP</div></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The old stack. HTTP/2 has streams, but TCP below it has one ordered byte stream. TLS is a separate layer with its own handshake.</p>
+  <p class="cap" data-s="2">The new stack. QUIC moves streams into the transport and carries TLS 1.3 inside its own handshake. UDP only carries the packets.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<h3>Streams that do not block each other</h3>
+<p>QUIC knows which stream each byte belongs to. RFC 9000 §13: "When a packet loss occurs, only streams with data in that packet are blocked waiting for a retransmission". RFC 9114 §1.2: "one stream that is blocked or suffers packet loss does not prevent progress on other streams." Each HTTP/3 request uses its own client stream (IDs 0, 4, 8, ...).</p>
+<h3>One handshake instead of two</h3>
+<p>RFC 9000 §7: "QUIC relies on a combined cryptographic and transport handshake to minimize connection establishment latency." The TLS 1.3 messages travel in QUIC CRYPTO frames. So the first flight both opens the connection and starts TLS. RFC 9001 §1: "most new connections can be established and secured within a single round trip". TCP + TLS 1.3 needs two. QUIC also has 0-RTT, with the same replay limits as chapter 4.</p>
+<h3>More is encrypted</h3>
+<p>In TCP, the headers (ports, sequence numbers, flags) are plain. QUIC encrypts its payload and protects parts of its header too, including the packet number (RFC 9001 §5.4). Middleboxes see less, and cannot freeze the protocol by depending on its fields.</p>
+<h3>How a browser finds out it can use HTTP/3</h3>
+<p>A browser starts with no knowledge that the server speaks QUIC. Two ways tell it. A response header: "An HTTP origin can advertise the availability of an equivalent HTTP/3 endpoint via the Alt-Svc HTTP response header field" (RFC 9114 §3.1.1), for example <code>alt-svc: h3=":443"</code>. Or a DNS <b>HTTPS record</b> with <code>alpn="h3,h2"</code> (RFC 9460), which arrives before the first connection. Some networks block UDP. RFC 9114 §3.1: then "clients SHOULD attempt to use TCP-based versions of HTTP".</p>
+
+<div class="lab" id="w-quic">
+ <div class="t">Lab: time until the first request leaves</div>
+ <p class="hint">Each bar is one way to open a secure connection. Orange segments are handshake round trips, the blue mark is when the request leaves, the green end is when the response arrives. Move the RTT: the gaps grow with it. Break it: block UDP. The QUIC attempt gets no answer. The client waits, then opens TCP + TLS. The wait before giving up is up to the client; this model uses 300 ms as an example.</p>
+ <div class="bar"><label>RTT <input type="range" id="qu-rtt" min="10" max="300" value="120"> <b id="qu-rv"></b></label>
+ <label><input type="checkbox" id="qu-udp"> Break it: this network blocks UDP</label></div>
+ <div class="wfwrap" id="qu-wf"></div>
+</div>
+
+<div class="lab term" data-tool="dig" id="qu-dig">
+ <div class="t">Lab: a real HTTPS DNS record</div>
+ <p class="hint">This asks real DNS for the HTTPS record of real sites (needs Internet). Look for <code>alpn</code>: <code>h3</code> means the site offers HTTP/3, <code>h2</code> HTTP/2. The browser learns this before it opens any connection.</p>
+ <template data-label="cloudflare.com">+short HTTPS cloudflare.com</template>
+ <template data-label="www.google.com">+short HTTPS www.google.com</template>
+</div>
+<div class="lab term" data-tool="curl" id="qu-curl">
+ <div class="t">Lab: a real Alt-Svc header</div>
+ <p class="hint">This fetches a real page over TCP and prints its <code>alt-svc</code> header (needs Internet). <code>h3=":443"</code> means "HTTP/3 is on UDP port 443 of this host". <code>ma</code> is how many seconds the browser may remember it.</p>
+ <template data-label="www.cloudflare.com">-s -o /dev/null -w alt-svc:%header{alt-svc}\n https://www.cloudflare.com</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+<section class="ch" id="c11" data-title="Connection migration">
+<h2>11. Connection migration</h2>
+<div class="topics">Covers: notes part 2 §15 · Sources: RFC 9293 §3.4.1 (connection = pair of sockets); RFC 9000 §5.1 (connection IDs), §8.2 (path validation), §9 (migration, client only, NAT rebinding), §9.5 (new connection ID), §18.2 (disable_active_migration)</div>
+<p class="lead">A TCP connection is identified by its addresses and ports. When a phone moves from Wi-Fi to 5G, its IP address changes, so to the server its packets belong to no connection. A QUIC connection is identified by a <b>connection ID</b> instead, so it can survive the move. QUIC calls this <b>connection migration</b>.</p>
+<p>The server looks up every incoming packet in a table. For TCP, the key is the socket pair: source IP and port, destination IP and port. A new source IP misses the table. The server answers with a reset or drops the packet, and the client must open a new connection: TCP handshake, TLS handshake, and the request again.</p>
+<p>For QUIC the key is the connection ID in the packet header. RFC 9000 §5.1: its job is "to ensure that changes in addressing at lower protocol layers (UDP, IP) do not cause packets for a QUIC connection to be delivered to the wrong endpoint." When packets for a known ID come from a new address, the server first checks that the client really is at that address. This is <b>path validation</b> (§8.2). The server sends a PATH_CHALLENGE with random data, and the client must echo it in a PATH_RESPONSE. That stops an attacker from pointing a connection's traffic at a victim's address.</p>
+<p>Rules and limits:</p>
+<ul>
+<li>"Clients are responsible for initiating all migrations" (§9). The server's address stays fixed.</li>
+<li>On a new path the client switches to a fresh connection ID that the server gave it earlier, so an observer cannot link the two paths (§9.5).</li>
+<li>A server can send <code>disable_active_migration</code>. Then the client "MUST NOT use a new local address" (§18.2).</li>
+<li>It also covers a change the client does not notice: <b>NAT rebinding</b>, when a home router gives the flow a new outside port (§9).</li>
+<li>A load balancer in front of many QUIC servers must route by connection ID. If it hashes on the IP and port, the migrated packets go to a server with no state for them.</li>
+</ul>
+
+<div class="lab" id="w-mig">
+ <div class="t">Lab: a download while the phone changes network</div>
+ <p class="hint">The phone downloads a file, then moves from Wi-Fi to 5G. The tables are the lookup state: the phone's addresses, and the server's connection table with its key. Press the steps in order. With TCP the lookup misses and the download starts again. With QUIC the lookup hits by connection ID, path validation runs, and the download goes on. Break it: put a load balancer that hashes on IP and port in front of two servers, or let the server forbid migration.</p>
+ <div class="bar"><label>Protocol <select id="mg-p"><option value="tcp">TCP + TLS</option><option value="quic">QUIC</option></select></label>
+ <label><input type="checkbox" id="mg-lb"> Break it: load balancer hashes IP and port</label>
+ <label><input type="checkbox" id="mg-dis"> Server sent disable_active_migration</label></div>
+ <div class="bar"><button class="pri" id="mg-1">1. Download on Wi-Fi</button><button id="mg-2">2. Switch to 5G</button><button id="mg-3">3. Next packet</button><button id="mg-reset">Reset</button></div>
+ <div class="grid2"><div class="ebox"><h5>Phone</h5><div id="mg-phone"></div></div><div class="ebox"><h5>Server lookup table</h5><div id="mg-tab"></div></div></div>
+ <div class="log" id="mg-log" style="height:150px"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c12" data-title="Anycast, BGP and the PoP">
+<h2>12. Anycast, BGP and the PoP</h2>
+<div class="topics">Covers: notes part 2 §16, §17, §18, §19, §20 · Sources: RFC 4271 §9.1.1, §9.1.2, §9.1.2.2 (BGP decision process); RFC 4786 §2, §3.2, §4.1, §4.4.3 (anycast catchments, topological nearness, TCP and route changes); RFC 7094 §1; Cloudflare docs (TCP connections: "shortest Border Gateway Protocol (BGP) path"); Cloudflare Learning Center (What is Anycast, DDoS); RFC 5398 (documentation AS numbers); RFC 4987 §3.6 (SYN cookies)</div>
+<p class="lead">With <b>anycast</b>, many CDN locations announce the same IP prefix to the Internet. Each network's routers pick one route to that prefix, so each user reaches one location, usually a near one. The protocol that carries those announcements between networks is <b>BGP</b>.</p>
+<p>The Internet is made of many separate networks called <b>autonomous systems</b> (AS): ISPs, CDNs, clouds, companies. Each has an AS number. With BGP, each AS tells its neighbours "I can reach this prefix", and passes on the path of AS numbers it came through (the AS_PATH). A CDN announces, say, <code>203.0.113.0/24</code> from Karachi, Dubai, Singapore and Frankfurt at once. An ISP in Pakistan then has several routes to the same prefix and must pick one.</p>
+<h3>How a router picks</h3>
+<p>RFC 4271 §9.1: first the route with the highest "degree of preference". Inside one network that is the <b>LOCAL_PREF</b> attribute, set by the ISP's own policy, often by cost: a free peering link is preferred over paid transit. Only among routes tied on preference, the tie-break rules apply "in the order specified": first the shortest AS_PATH, then several more.</p>
+<p>So "nearest" means best by BGP policy and path, not by kilometres. Cloudflare's docs: traffic goes "to the nearest Cloudflare data center based on the shortest Border Gateway Protocol (BGP) path". RFC 4786 §3.2 warns that "Topological nearness within the routing system does not, in general, correlate to round-trip performance". A user in Karachi can land in Singapore if their ISP's policy prefers that route.</p>
+<h3>Anycast and TCP</h3>
+<p>Anycast works well for one-packet protocols like DNS. TCP needs every packet of a connection to reach the same machine. If routes change during a connection, packets start to arrive at another location that has no state for the connection, and it resets. RFC 4786 §4.1: node selection "ought to be stable for substantially longer than the expected transaction time". In practice routes are stable for most connections, and CDNs plan for the rest. Anycast also spreads a DDoS attack: each location takes the attack traffic from its own catchment (RFC 4786 §2: "the topological region of a network within which packets directed at anycast addresses are routed to one particular node").</p>
+<h3>Inside a PoP</h3>
+<p>A <b>point of presence</b> (PoP) is a site where the CDN has routers and servers. A request passes several layers in it:</p>
+<div class="build">
+ <div class="stage col">
+  <div class="n edge" data-s="1">Router<small>announces the anycast prefix by BGP</small></div>
+  <div class="ar" data-s="2">↓</div>
+  <div class="n bad" data-s="2">DDoS filtering<small>drops floods, SYN cookies</small></div>
+  <div class="ar" data-s="3">↓</div>
+  <div class="n edge" data-s="3">Layer 4 load balancer<small>spreads connections over servers</small></div>
+  <div class="ar" data-s="4">↓</div>
+  <div class="n edge" data-s="4">TLS termination<small>connection A ends here</small></div>
+  <div class="ar" data-s="5">↓</div>
+  <div class="n bad" data-s="5">WAF · bot checks · rate limits</div>
+  <div class="ar" data-s="6">↓</div>
+  <div class="n data" data-s="6">Cache<small>hit: answer now</small></div>
+  <div class="ar" data-s="7">↓ <small>miss or uncacheable</small></div>
+  <div class="n svc" data-s="7">Proxy and connection pool<small>connection B to the next tier</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The router announces the anycast prefix. Packets for it from this catchment arrive here.</p>
+  <p class="cap" data-s="2">Attack traffic is dropped as early as possible, before it costs a server anything.</p>
+  <p class="cap" data-s="3">A load balancer spreads the connections over the servers in the PoP. It must keep all packets of one connection on one server.</p>
+  <p class="cap" data-s="4">The server finishes TCP and TLS (or QUIC) with the user and decrypts the request.</p>
+  <p class="cap" data-s="5">Now the request is readable, so the edge can apply rules to it: block attacks in the URL or body, challenge bots, limit request rates.</p>
+  <p class="cap" data-s="6">The cache answers a hit at once. The origin never sees it.</p>
+  <p class="cap" data-s="7">A miss, a POST or a private page goes on through the pool to the next tier or to the origin.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="w-bgp">
+ <div class="t">Lab: an ISP in Karachi picks a route</div>
+ <p class="hint">The table is the ISP router's state for <code>203.0.113.0/24</code>: one route per PoP that announces it, with LOCAL_PREF and AS_PATH. The router picks the highest LOCAL_PREF, then the shortest AS_PATH. The chosen row is green. Turn PoPs off and on: traffic moves to the next best one. Break it: give the cheap transit to Singapore a higher LOCAL_PREF. Karachi users now go to Singapore although Karachi has a PoP. Then "Route change during a download": an open TCP connection lands on a PoP that does not know it. AS numbers are documentation values. RTTs are examples.</p>
+ <div class="bar" id="bg-pops"></div>
+ <div class="bar"><label><input type="checkbox" id="bg-lp"> Break it: LOCAL_PREF 200 on the cheap transit to Singapore</label>
+ <button id="bg-flip">Route change during a download</button><button id="bg-reset">Reset</button></div>
+ <div class="scrollx"><table class="ctab" id="bg-tab"></table></div>
+ <div class="log" id="bg-log" style="height:110px"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c13" data-title="Tiers, the backbone and split connections">
+<h2>13. Tiers, the backbone and split connections</h2>
+<div class="topics">Covers: notes part 1 §6, §7, §8, §9, §10; part 2 §21 to §29 · Sources: AWS CloudFront docs (Origin Shield, request collapsing); AWS Global Accelerator docs (How it works); Google Cloud docs (Network Service Tiers); Cloudflare docs (Tiered Cache, Argo Smart Routing); Mathis et al. 1997 and RFC 3649 §5 (throughput ≈ 1.2/√p segments per RTT)</div>
+<p class="lead">Between the edge and the origin, a large CDN adds cache tiers and carries traffic on its own network. Each hop is a separate connection with its own pool. Splitting one long connection into short ones can make it faster, not slower.</p>
+<h3>Cache tiers and the origin shield</h3>
+<p>Every PoP has its own cache. Without tiers, a file that becomes popular causes one miss per PoP, and every miss hits the origin. A <b>regional tier</b> or <b>origin shield</b> sits between the PoPs and the origin. Edges ask the shield, and only the shield asks the origin. AWS: requests that miss in Origin Shield "are consolidated with other requests for the same object, resulting in as few as one request going to your origin". When many users miss on the same file at the same moment, the cache sends one request and makes the rest wait for it. This is <b>request collapsing</b>, and it prevents a <b>cache stampede</b>. The CDN explainer has a real lab for it: <a href="cdn-explained.html#c7">CDNs, chapter 7</a>.</p>
+<div class="build">
+ <div class="stage col">
+  <div class="row" data-s="1"><div class="n edge">Edge Karachi</div><div class="n edge">Edge Dubai</div><div class="n edge">Edge Mumbai</div></div>
+  <div class="ar" data-s="2">↓ <small>pool to the regional tier</small></div>
+  <div class="n data" data-s="2">Regional cache</div>
+  <div class="ar" data-s="3">↓ <small>pool to the shield</small></div>
+  <div class="n data" data-s="3">Origin shield<small>collapses misses</small></div>
+  <div class="ar" data-s="4">↓ <small>a few HTTP/2 connections</small></div>
+  <div class="n svc" data-s="4">Origin</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">Three edges, each with its own cache. A new popular file misses in all three.</p>
+  <p class="cap" data-s="2">They ask a regional cache on pooled connections. The first miss there fetches the file; the others wait for it.</p>
+  <p class="cap" data-s="3">The regional cache asks the shield, which sits near the origin. Many regions share one shield.</p>
+  <p class="cap" data-s="4">Only the shield talks to the origin. One request for the file, then every tier keeps a copy.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+<h3>The backbone</h3>
+<p>On the public Internet, a packet from Karachi to Frankfurt crosses several networks, each with its own policy, capacity and congestion. Nobody on the path controls it end to end. A large CDN or cloud takes the traffic onto its own network at the nearest PoP (early ingress) and carries it most of the way on links it controls. Google Cloud describes this as Premium Tier: traffic "enters Google's high-performance network at the PoP closest to the sending system". AWS Global Accelerator takes traffic "onto the AWS global network from the edge location that is closest to your users".</p>
+<p>"Private backbone" does not mean private IP addresses such as <code>10.0.0.0/8</code>. The edge may still connect to <code>https://origin.example.com</code> on a public IP. It means the provider controls the routers and links, so it controls routing, capacity, failover, and loss.</p>
+<h3>Why two short connections beat one long one</h3>
+<p>TCP's speed depends on round trip time and loss. A sender can send one window of data per round trip. After a loss it halves the window. The Mathis model puts the average window near 1.2/√p segments for loss rate p (RFC 3649 §5), so throughput ≈ window × segment size / RTT. Long RTT and loss both cut speed, and they multiply.</p>
+<p>Split the path and each part improves. The user's handshakes run over a 20 ms leg, not a 150 ms one. Loss on the user's last mile is recovered over 20 ms, not 150 ms. The long leg runs on a warm connection with a grown window, on a network with little loss. And the edge's handshake with the browser does not create a new handshake to the origin, because connection B is already open.</p>
+
+<div class="lab" id="w-split">
+ <div class="t">Lab: direct connection or split through an edge</div>
+ <p class="hint">Fetch a 1 MB file from Frankfurt. "Direct" is one new TCP + TLS 1.3 connection over the public path. "Split" is a new connection to the edge plus a warm pooled connection from the edge, on the backbone. The bars show handshakes (orange), the request (blue) and the transfer (green). Transfer time comes from slow start and the Mathis limit. Break it: congest the public path, or make the edge's pool cold. All numbers are examples.</p>
+ <div class="bar"><label>Direct RTT <input type="range" id="sp-d" min="50" max="300" value="150"> <b id="sp-dv"></b></label>
+ <label>User to edge RTT <input type="range" id="sp-e" min="5" max="60" value="20"> <b id="sp-ev"></b></label>
+ <label>Public path loss <select id="sp-l"><option value="0.005">0.5%</option><option value="0.03">Break it: 3% (congested)</option></select></label>
+ <label><input type="checkbox" id="sp-cold"> Break it: edge pool is cold</label></div>
+ <div class="wfwrap" id="sp-wf"></div>
+ <div id="sp-stats"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c14" data-title="One request, end to end">
+<h2>14. One request, end to end</h2>
+<div class="topics">Covers: notes part 1 "Put everything together" (cache HIT, MISS, POST); part 2 §30, §31, §32, §35 · Sources: chapters 1 to 13 of this explainer</div>
+<p class="lead">Now follow real requests through all the parts: a first page load that misses the cache, a second request that hits, and a POST that can never be cached. The difference between them is which connections already exist and how far each request must travel.</p>
+<p>A <code>POST /checkout</code> never comes from cache. It still gains from the CDN: a short handshake to the edge, filtering, rate limits, the backbone, and a warm pooled connection to the origin. The CDN helps even with zero caching.</p>
+
+<div class="lab" id="w-e2e">
+ <div class="t">Lab: step through a request</div>
+ <p class="hint">Pick a case and press "Next". Each step lights one hop and adds its time. The table lists the connections: which exist, which this request uses, and their protocol. The RTTs are examples: user to edge 20 ms, edge to shield 60 ms, shield to origin 10 ms. Compare the second request (one round trip) with the first. Break it: cold pools. Every hop pays its own handshakes.</p>
+ <div class="bar"><label>Case <select id="ee-c"><option value="first">First visit: GET /products (miss)</option><option value="second">Next request: GET /logo.png (hit)</option><option value="post">POST /checkout</option></select></label>
+ <label><input type="checkbox" id="ee-cold"> Break it: cold pools</label>
+ <button class="pri" id="ee-next">Next</button><button id="ee-all">All</button><button id="ee-reset">Restart</button></div>
+ <div class="trace" id="ee-out"></div>
+ <div class="scrollx"><table class="ctab" id="ee-tab"></table></div>
+ <div id="ee-stats"></div>
+</div>
+
+<h3>How the parts connect</h3>
+<p>Each mechanism fixes a cost the one before it left behind:</p>
+<table>
+<tr><th>Mechanism</th><th>What it fixes</th><th>What it leaves</th></tr>
+<tr><td>TCP handshake</td><td>reliable, ordered bytes</td><td>1 RTT before any data</td></tr>
+<tr><td>TLS 1.3</td><td>privacy, identity, integrity</td><td>1 more RTT; SNI still visible</td></tr>
+<tr><td>Keep-alive</td><td>handshakes once per connection, not per request</td><td>one response at a time on HTTP/1.1</td></tr>
+<tr><td>Connection pool</td><td>reuse across users; origin sees few connections</td><td>HTTP/1.1 still needs one connection per request in flight</td></tr>
+<tr><td>HTTP/2 multiplexing</td><td>many requests at once on one connection</td><td>one lost TCP segment stalls all streams</td></tr>
+<tr><td>QUIC and HTTP/3</td><td>loss per stream; one handshake; migration</td><td>UDP can be blocked; needs a TCP fallback</td></tr>
+<tr><td>Anycast</td><td>users reach a near PoP with one IP</td><td>"near" is BGP's choice, not distance</td></tr>
+<tr><td>PoPs</td><td>short handshakes; cache and filters near users</td><td>every PoP misses on its own</td></tr>
+<tr><td>Origin shield, collapsing</td><td>one origin request per file, not one per PoP or user</td><td>one more hop on a miss</td></tr>
+<tr><td>Private backbone</td><td>less loss and congestion on the long leg</td><td>the last mile is still the public Internet</td></tr>
+</table>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+</main>
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const rnd=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function log(el,msg,cls=''){if(typeof el==='string')el=$(el);const d=document.createElement('div');d.className=cls;d.textContent=msg;el.appendChild(d);el.scrollTop=el.scrollHeight;}
+const stat=(v,label,color)=>`<span class="stat"><b${color?` style="color:var(--${color})"`:''}>${v}</b>${label}</span>`;
+
+/* ---------- nav + progress ---------- */
+const secs=$$('section.ch'),done=new Set(JSON.parse(localStorage.getItem('tcp-tls-done')||'[]'));
+secs.forEach((s,i)=>{const a=document.createElement('a');a.href='#'+s.id;a.dataset.id=s.id;a.innerHTML=`<span class="num">${i+1}</span><span>${s.dataset.title}</span>`;a.onclick=()=>$('#side').classList.remove('open');$('#nav').appendChild(a);
+ $('.done-btn',s).onclick=()=>{done.has(s.id)?done.delete(s.id):done.add(s.id);localStorage.setItem('tcp-tls-done',JSON.stringify([...done]));paintNav();};});
+function paintNav(){$$('#nav a').forEach(a=>a.classList.toggle('done',done.has(a.dataset.id)));secs.forEach(s=>$('.done-btn',s).textContent=done.has(s.id)?'✓ Read (click to undo)':'Mark chapter as read');$('#prog i').style.width=(done.size/secs.length*100)+'%';}
+paintNav();
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)$$('#nav a').forEach(a=>a.classList.toggle('cur',a.dataset.id===e.target.id));}),{rootMargin:'-35% 0px -60% 0px'});
+secs.forEach(s=>io.observe(s));
+
+/* ---------- build-up diagrams ---------- */
+$$('.build').forEach(b=>{
+ const items=$$('.stage [data-s]',b),caps=$$('.cap',b),ctl=$('.ctl',b);
+ const max=Math.max(...items.map(e=>+e.dataset.s),...caps.map(c=>+c.dataset.s));let cur=1;
+ ctl.innerHTML='<button data-a="first">⏮</button><button data-a="prev">◀ Back</button><button class="pri" data-a="next">Next ▶</button><button data-a="all">Show all</button><span></span>';
+ function show(fresh){items.forEach(e=>{const s=+e.dataset.s;e.classList.toggle('off',s>cur);e.classList.remove('fresh');if(fresh&&s===cur){void e.offsetWidth;e.classList.add('fresh');}});
+  caps.forEach(c=>c.classList.toggle('on',+c.dataset.s===cur));$('span',ctl).textContent=`Step ${cur} of ${max}`;$('[data-a=prev]',ctl).disabled=cur<=1;$('[data-a=next]',ctl).disabled=cur>=max;}
+ ctl.onclick=e=>{const a=e.target.dataset.a;if(!a)return;cur=a==='next'?cur+1:a==='prev'?cur-1:a==='first'?1:max;cur=Math.max(1,Math.min(max,cur));show(a==='next');};
+ show(false);
+});
+
+
+/* ---------- labs: one IIFE per lab ---------- */
+/* ---------- shared bits for these labs ---------- */
+// One time-line row per item: segs are [start, end, color var]. Scale is the time at the right edge.
+function wfRows(el,rows,scale){
+ el.innerHTML=rows.map(r=>`<div class="wf"><span style="left:-125px">${r.label}</span>${r.segs.map(([a,b,c,t])=>`<i title="${t||''}" style="left:${a/scale*100}%;width:${Math.max(.4,(b-a)/scale*100)}%;background:var(--${c})"></i>`).join('')}${r.mark!=null?`<b class="wfm" style="left:${r.mark/scale*100}%"></b>`:''}<em>${r.note||''}</em></div>`).join('')+`<div class="wfaxis"><span>0</span><span>${Math.round(scale/2)} ms</span><span>${Math.round(scale)} ms</span></div>`;
+}
+const slider=(id,out,fmt)=>{const s=$(id),o=$(out),f=()=>o.textContent=fmt(+s.value);s.addEventListener('input',f);f();return s;};
+const ms=v=>Math.round(v)+' ms';
+const hex32=()=>Math.floor(Math.random()*(2**32-2));
+
+/* ---------- ch1: what each leg sees ---------- */
+(()=>{const lg=$('#lg-log');
+ const P={h3:['HTTP/3','QUIC on UDP, TLS 1.3 inside'],h2:['HTTP/2','TCP + TLS 1.3'],h1:['HTTP/1.1','TCP + TLS 1.3'],flex:['HTTP/1.1','TCP, no TLS']};
+ const row=(k,v,c='')=>`<tr class="${c}"><td>${k}</td><td>${v}</td></tr>`;
+ function draw(){const a=$('#lg-a').value,b=$('#lg-b').value,flex=b==='flex';
+  $('#lg-ta').innerHTML=row('from','browser 198.51.100.23:51514')+row('to','edge 203.0.113.10:443 (anycast)')+row('transport',P[a][1])+row('protocol',P[a][0])+row('can read the request','browser, edge');
+  $('#lg-tb').innerHTML=row('from','edge 192.0.2.40:40122')+row('to','origin 198.51.100.80:'+(flex?80:443))+row('transport',P[b][1],flex?'badrow':'')+row('protocol',P[b][0])+row('can read the request',flex?'edge, origin, and every network on the path':'edge, origin',flex?'badrow':'')+row('user address the origin sees','192.0.2.40 (the edge). The user is in a header: Forwarded: for=198.51.100.23','hl');}
+ $('#lg-a').onchange=$('#lg-b').onchange=()=>{draw();lg.innerHTML='';};
+ $('#lg-go').onclick=async()=>{const a=$('#lg-a').value,b=$('#lg-b').value,flex=b==='flex';lg.innerHTML='';draw();
+  log(lg,`browser → edge: POST /cart as ${P[a][0]} on connection A (encrypted)`,'info');await sleep(350);
+  log(lg,'edge: decrypts with connection A\'s keys. It can now read the URL, headers and the session cookie.','msg');await sleep(350);
+  log(lg,'edge: POST is not cached. WAF and rate limit pass. Take an idle connection from the pool to the origin.','mute');await sleep(350);
+  if(flex)log(lg,`edge → origin: POST /cart as ${P[b][0]} on connection B, in plain text. Cookie: session=7f3a… is readable on every link to the origin.`,'bad');
+  else log(lg,`edge → origin: POST /cart as ${P[b][0]} on connection B, encrypted again with connection B's own keys`,'ok');
+  await sleep(350);log(lg,'origin: sees a request from 192.0.2.40. It never had a connection with the browser.','info');
+  if(a!==b.replace('flex','h1'))log(lg,`Protocols differ (${P[a][0]} and ${P[b][0]}). That is normal: two connections, two choices.`,'mute');};
+ draw();
+})();
+
+/* ---------- ch2: TCP handshake ---------- */
+(()=>{const R=slider('#tc-rtt','#tc-rv',ms),out=$('#tc-out');let ev=[],n=0;
+ function build(){const r=+R.value,h=r/2,L=$('#tc-loss').value,x=hex32(),y=hex32(),RTO=1000;let t=0;ev=[];
+  const pk=(at,dir,txt,lost,c,s,note)=>ev.push({at,dir,txt,lost,c,s,note});
+  pk(0,'>',`SYN seq=${x}`,L==='syn','SYN-SENT','LISTEN');
+  if(L==='syn'){pk(RTO,'·','client RTO fires after 1 s: no SYN-ACK came',false,'SYN-SENT','LISTEN');t=RTO;pk(t,'>',`SYN seq=${x} (resent)`,false,'SYN-SENT','LISTEN');}
+  pk(t+h,'<',`SYN-ACK seq=${y} ack=${x+1}`,L==='synack','SYN-SENT','SYN-RECEIVED');
+  if(L==='synack'){pk(RTO,'·','client RTO fires after 1 s. The server also waits for an ACK that never comes.',false,'SYN-SENT','SYN-RECEIVED');t=RTO;pk(t,'>',`SYN seq=${x} (resent)`,false,'SYN-SENT','SYN-RECEIVED');pk(t+h,'<',`SYN-ACK seq=${y} ack=${x+1} (resent)`,false,'SYN-SENT','SYN-RECEIVED');}
+  pk(t+r,'>',`ACK seq=${x+1} ack=${y+1}`,L==='ack','ESTABLISHED','SYN-RECEIVED','client may send now');
+  pk(t+r,'>',`GET /api/x  seq=${x+1} ack=${y+1}  (request bytes)`,false,'ESTABLISHED','SYN-RECEIVED');
+  pk(t+r+h,'·',L==='ack'?'server: the ACK was lost, but the request segment carries ack='+(y+1)+'. Connection established, no time lost.':'server receives ACK and request',false,'ESTABLISHED','ESTABLISHED');
+  n=0;out.innerHTML='';paint();}
+ function paint(){const e=ev[n-1]||{c:'CLOSED',s:'LISTEN',at:0};
+  for(const [id,v] of [['#tc-cs',e.c],['#tc-ss',e.s]]){const s=$(id);s.textContent=v;s.className='state on '+(v==='ESTABLISHED'?'closed':v.startsWith('SYN')?'half':'');}
+  $('#tc-clock').textContent='t = '+ms(e.at);$('#tc-next').disabled=n>=ev.length;}
+ function step(){const e=ev[n++];if(!e)return;const d=document.createElement('div');d.className='r';
+  d.innerHTML=e.dir==='·'?`<span class="mute">${ms(e.at)}</span><span class="mute" style="grid-column:2/4">${e.txt}</span>`:
+   `<span class="mute">${ms(e.at)}</span><span class="m" style="${e.lost?'border-color:var(--bad);color:var(--bad)':''}">${e.dir==='>'?'':'◀ '}${e.txt}${e.dir==='>'?' ▶':''}${e.lost?'  ✗ lost':''}</span><span class="mute">${e.note||''}</span>`;
+  out.appendChild(d);paint();}
+ $('#tc-next').onclick=step;$('#tc-all').onclick=()=>{while(n<ev.length)step();};$('#tc-reset').onclick=build;R.addEventListener('change',build);$('#tc-loss').onchange=build;build();
+})();
+
+/* ---------- ch3: TLS flights ---------- */
+(()=>{const R=slider('#tl-rtt','#tl-rv',ms),tab=$('#tl-tab');let fl=[],n=0;
+ // each flight: [dir, messages, client keys, server keys, watcher sees, kind]
+ const CH='ClientHello (SNI shop.acmeshop.com, versions, ciphers, key_share X25519)';
+ const CASES={
+  t13:[['>',CH,'own key pair','none','everything: SNI, versions, key share',''],
+   ['<','ServerHello (key_share) + {EncryptedExtensions} {Certificate} {CertificateVerify} {Finished}','handshake keys, then checks the certificate and signature','handshake keys, application keys','ServerHello. The rest is encrypted: only record sizes',''],
+   ['>','{Finished} + [GET /products]','application keys','application keys','encrypted records only','req']],
+  hrr:[['>',CH.replace('X25519','P-384 only'),'own key pair (wrong group)','none','everything',''],
+   ['<','HelloRetryRequest: "send a key share for X25519"','none yet','none','the retry request','bad'],
+   ['>','ClientHello again (key_share X25519)','new key pair','none','everything',''],
+   ['<','ServerHello (key_share) + {EncryptedExtensions} {Certificate} {CertificateVerify} {Finished}','handshake keys, checks the certificate','handshake keys, application keys','ServerHello; rest encrypted',''],
+   ['>','{Finished} + [GET /products]','application keys','application keys','encrypted records only','req']],
+  t12:[['>','ClientHello (SNI, versions, ciphers, no key share)','none','none','everything',''],
+   ['<','ServerHello + Certificate + ServerKeyExchange + ServerHelloDone','checks the certificate','own key pair','everything, including the certificate','bad'],
+   ['>','ClientKeyExchange + ChangeCipherSpec + {Finished}','session keys','session keys','key exchange; Finished encrypted',''],
+   ['<','ChangeCipherSpec + {Finished}','session keys','session keys','encrypted Finished',''],
+   ['>','[GET /products]','session keys','session keys','encrypted records only','req']],
+  bad:[['>',CH,'own key pair','none','everything',''],
+   ['<','ServerHello + {EncryptedExtensions} {Certificate for www.other-shop.com} {CertificateVerify} {Finished}','handshake keys. Name check fails: certificate is not for shop.acmeshop.com','handshake keys','ServerHello; rest encrypted','bad'],
+   ['>','alert: bad_certificate. Connection closed. No request sent.','none','none','an encrypted alert','bad']]};
+ function build(){fl=CASES[$('#tl-m').value];n=0;paint();}
+ function paint(){const r=+R.value;
+  tab.innerHTML='<tr><th>time</th><th>flight</th><th>client holds</th><th>server holds</th><th>watcher on the path reads</th></tr><tr><td>0</td><td>TCP handshake</td><td colspan="3" class="mute">1 RTT (chapter 2)</td></tr>'+
+   fl.slice(0,n).map((f,i)=>`<tr class="${f[5]==='bad'?'badrow':f[5]==='req'?'ok':''}"><td>${ms(r+i*r/2)}</td><td>${f[0]==='>'?'client → server':'server → client'}<br><code>${f[1]}</code></td><td>${f[2]}</td><td>${f[3]}</td><td>${f[4]}</td></tr>`).join('');
+  const req=fl.findIndex(f=>f[5]==='req');
+  $('#tl-stats').innerHTML=n>=fl.length?(req<0?stat('never','request sent','bad'):stat(ms(r+req*r/2),'until the request leaves')+stat((1+req/2)+' RTT','TCP + TLS before the request')+stat(ms(r+req*r/2+r),'until the first response byte')):'';
+  $('#tl-next').disabled=n>=fl.length;}
+ $('#tl-next').onclick=()=>{n++;paint();};$('#tl-all').onclick=()=>{n=fl.length;paint();};$('#tl-reset').onclick=build;$('#tl-m').onchange=build;R.addEventListener('input',paint);build();
+})();
+
+/* ---------- ch4: tickets, 0-RTT, replay ---------- */
+(()=>{const lg=$('#zr-log');let st;
+ function reset(){st={tickets:[],seen:new Set(),orders:0,products:0,last:null,next:1};lg.innerHTML='';paint();}
+ function paint(){$('#zr-cli').innerHTML=st.tickets.length?st.tickets.map(t=>`<div class="mono">ticket #${t} (PSK)</div>`).join(''):'<span class="mute">no tickets</span>';
+  $('#zr-srv').innerHTML=`<div>tickets seen: <span class="mono">${[...st.seen].map(t=>'#'+t).join(' ')||'none'}</span> ${$('#zr-single').checked?'<span class="pill ok">single-use on</span>':'<span class="pill">not recorded</span>'}</div><div style="margin-top:6px">${stat(st.products,'GET /products served')}${stat(st.orders,'orders placed',st.orders>1?'bad':'')}</div>`;}
+ const need=()=>{if(!st.tickets.length){log(lg,'No ticket yet. Do a full handshake first.','warn');return false;}return true;};
+ $('#zr-full').onclick=()=>{const t=st.next++;st.tickets=[t];log(lg,'Full handshake: ClientHello → ServerHello, Certificate, CertificateVerify, Finished → Finished. 1 RTT.','info');log(lg,`server → client: NewSessionTicket #${t}`,'ok');paint();};
+ $('#zr-res').onclick=()=>{if(!need())return;const t=st.tickets[0];log(lg,`ClientHello + pre_shared_key (ticket #${t}) → ServerHello. No Certificate, no CertificateVerify. Still 1 RTT before the request.`,'info');st.tickets=[st.next++];log(lg,`server → client: new ticket #${st.tickets[0]}`,'ok');paint();};
+ function early(method,path,replay){const t=replay?st.last.t:st.tickets[0];
+  const tag=replay?'ATTACKER replays: ':'';log(lg,`${tag}ClientHello + ticket #${t} + early data [${method} ${path}] in the first flight (0 RTT)`,replay?'bad':'info');
+  if($('#zr-single').checked&&st.seen.has(t)){log(lg,`server: ticket #${t} was used before. Early data ignored, full handshake instead.`,'ok');return;}
+  st.seen.add(t);
+  if(method==='POST'&&$('#zr-425').checked){log(lg,'server: POST in early data is not safe to replay → 425 Too Early. The real client sends it again after the handshake.','ok');return;}
+  if(!replay){st.tickets=[st.next++];log(lg,`server → client: new ticket #${st.tickets[0]} for next time`,'mute');}
+  if(method==='POST'){st.orders++;log(lg,`server: runs ${method} ${path}. Order #${st.orders} placed.`,replay?'bad':'warn');}else{st.products++;log(lg,`server: runs GET ${path}. A replay would only fetch it again.`,'ok');}}
+ $('#zr-get').onclick=()=>{if(!need())return;st.last={t:st.tickets[0],m:'GET',p:'/products'};early('GET','/products');paint();};
+ $('#zr-post').onclick=()=>{if(!need())return;st.last={t:st.tickets[0],m:'POST',p:'/order'};early('POST','/order');paint();};
+ $('#zr-rep').onclick=()=>{if(!st.last){log(lg,'Send a 0-RTT request first, so the attacker has something to copy.','warn');return;}early(st.last.m,st.last.p,true);paint();};
+ $('#zr-reset').onclick=reset;$('#zr-single').onchange=$('#zr-425').onchange=paint;reset();
+})();
+
+/* ---------- ch5: keep-alive ---------- */
+(()=>{const R=slider('#ka-rtt','#ka-rv',ms);
+ function draw(){const r=+R.value,m=$('#ka-m').value,files=['index.html','style.css','app.js','logo.png','avatar.png','products.json'];let t=0,hs=0,rows=[],gapNote='';
+  files.forEach((f,i)=>{const segs=[];let fresh=m==='close'||i===0;
+   if(m==='idle'&&i===3){segs.push([t,t+r*0.6,'mute','90 s pause, shortened']);t+=r*0.6;fresh=true;gapNote=' (after a 90 s pause; server closed the idle connection at 60 s)';}
+   if(fresh){segs.push([t,t+2*r,'warn','TCP + TLS 1.3']);t+=2*r;hs++;}
+   segs.push([t,t+r,'edge','request and response']);t+=r;rows.push({label:f,segs,note:ms(t)+(m==='idle'&&i===3?' · new connection':'')});});
+  wfRows($('#ka-wf'),rows,t*1.08);
+  const tw=m==='close'?'6 on the server':m==='idle'?'1 on the server, 1 on the client later':'1, on whichever side closes';
+  $('#ka-stats').innerHTML=stat(ms(t),'for 6 files (pause not counted)')+stat(hs,'handshakes paid',hs>1?'warn':'ok')+stat(tw,'sockets left in TIME-WAIT');}
+ R.addEventListener('input',draw);$('#ka-m').onchange=draw;draw();
+})();
+
+/* ---------- ch6: users to origin connections ---------- */
+(()=>{const fmt=v=>v>=1e6?(v/1e6).toFixed(1)+' M':v>=1e4?Math.round(v/1e3)+' k':v>=100?Math.round(v).toLocaleString('en'):v>=10?v.toFixed(0):v.toFixed(1);
+ const U=slider('#cc-u','#cc-uv',v=>fmt(10**v)),Rr=slider('#cc-r','#cc-rv',v=>v),H=slider('#cc-h','#cc-hv',v=>v+'%'),T=slider('#cc-t','#cc-tv',ms);
+ function draw(){const users=10**+U.value,rps=users*+Rr.value/60,orps=rps*(1-+H.value/100),fl=orps*+T.value/1000,h2=$('#cc-p').value==='h2';
+  const conns=Math.max(fl>0?1:0,Math.ceil(h2?fl/100:fl));
+  const bars=[['user connections to the edge',users,'client'],['requests per second at the edge',rps,'edge'],['requests per second to the origin',orps,'data'],['requests in flight to the origin',fl,'msg'],[`origin connections (${h2?'HTTP/2':'HTTP/1.1'})`,conns,conns>500?'bad':'svc']];
+  $('#cc-bars').innerHTML='<div class="logbars">'+bars.map(([l,v,c])=>`<div class="lb"><span>${l}</span><div><i style="width:${Math.max(.5,Math.log10(v+1)/6*100)}%;background:var(--${c})"></i></div><b>${fmt(v)}</b></div>`).join('')+'</div>'+
+   `<p class="hint">In flight = ${fmt(orps)} per second × ${(+T.value/1000).toFixed(3)} s = ${fmt(fl)}. ${h2?'HTTP/2 puts up to 100 of them on each connection.':'HTTP/1.1 needs one connection for each.'} ${conns>500?'<b style="color:var(--bad)">The origin must now accept and hold this many connections.</b>':''}</p>`;}
+ [U,Rr,H,T].forEach(s=>s.addEventListener('input',draw));$('#cc-p').onchange=draw;
+ const set=(s,v)=>{s.value=v;s.dispatchEvent(new Event('input'));};
+ $('#cc-slow').onclick=()=>set(T,2000);$('#cc-purge').onclick=()=>set(H,0);$('#cc-norm').onclick=()=>{set(T,50);set(H,90);};draw();
+})();
+
+/* ---------- ch7: HTTP/1.1 head-of-line blocking ---------- */
+(()=>{const R=slider('#h1-rtt','#h1-rv',ms),BW=2500,SRV=20;// bytes per ms (20 Mbit/s), server time per request
+ const REQ=[['A image 2 MB',2e6],['B data.json 2 KB',2e3],['C style.css 30 KB',3e4],['D app.js 60 KB',6e4],['E icon.png 40 KB',4e4]];
+ function draw(){const r=+R.value,m=$('#h1-m').value,hs=2*r,n=REQ.length;
+  const q=REQ.map(([l,b])=>({l,left:b,start:null,end:null}));
+  if(m==='six')q.forEach(x=>x.start=hs+r+SRV);else if(m==='pipe')q[0].start=hs+r+SRV;else q[0].start=hs+r+SRV;
+  for(let t=0;t<60000&&q.some(x=>x.end==null);t++){
+   const act=q.filter(x=>x.start!=null&&x.start<=t&&x.end==null);
+   act.forEach(x=>{x.left-=BW/act.length;if(x.left<=0)x.end=t+1;});
+   q.forEach((x,i)=>{if(i&&x.start==null&&q[i-1].end!=null)x.start=m==='pipe'?q[i-1].end:q[i-1].end+r+SRV;});}
+  const end=Math.max(...q.map(x=>x.end));
+  wfRows($('#h1-wf'),q.map((x,i)=>{const segs=[];const own=m==='six'||i===0;
+    if(own)segs.push([0,hs,'warn','TCP + TLS']);segs.push([hs,x.start,'panel2','waiting']);segs.push([x.start,x.end,i===1?'svc':'edge','response']);
+    return{label:x.l,segs,note:ms(x.end)};}),end*1.12);
+  $('#h1-stats').innerHTML=stat(ms(q[1].end),'until B (the JSON) is done',q[1].end>end/2?'bad':'ok')+stat(ms(end),'until all are done')+stat(m==='six'?5:1,'connections opened, each with handshakes');}
+ R.addEventListener('input',draw);$('#h1-m').onchange=draw;draw();
+})();
+
+/* ---------- ch8: HTTP/2 frames ---------- */
+(()=>{const TY={DATA:0,HEADERS:1,RST_STREAM:3,SETTINGS:4},col={0:'mute',1:'edge',3:'svc',5:'msg'};let st;
+ const hdr=(len,type,flags,id)=>[len>>16,len>>8&255,len&255,TY[type],flags,id>>>24,id>>16&255,id>>8&255,id&255].map(b=>b.toString(16).padStart(2,'0')).join(' ');
+ function reset(){const max=+$('#h2-max').value;
+  st={wire:[],ctl:[['C','SETTINGS',0,0,18,'client preface + SETTINGS'],['S','SETTINGS',0,0,6,`SETTINGS_MAX_CONCURRENT_STREAMS=${max}`],['C','SETTINGS',1,0,0,'ACK'],['S','SETTINGS',1,0,0,'ACK']],max,rst:false,
+   s:[{id:1,path:'GET /users',req:[['HEADERS',5,40]],resp:[['HEADERS',4,60],['DATA',0,16384],['DATA',0,16384],['DATA',1,4000]]},
+      {id:3,path:'GET /products',req:[['HEADERS',5,38]],resp:[['HEADERS',4,58],['DATA',0,16384],['DATA',1,9000]]},
+      {id:5,path:'POST /orders',req:[['HEADERS',4,52],['DATA',1,300]],resp:[['HEADERS',4,61],['DATA',1,120]]}].map(x=>({...x,state:'idle',got:[],bytes:0})),rr:0};
+  $('#h2-rst').disabled=false;paint();}
+ function emit(dir,type,flags,id,len,txt){st.wire.push({dir,type,flags,id,len,txt});const s=st.s.find(x=>x.id===id);if(s&&type!=='RST_STREAM'){s.got.push((dir==='C'?'→':'←')+type[0]+(type==='DATA'?len:''));s.bytes+=len;}}
+ function next(){if(st.ctl.length){const [d,t,f,id,len,txt]=st.ctl.shift();emit(d,t,f,id,len,txt);return true;}
+  if(st.rst){st.rst=false;const s=st.s.find(x=>x.id===3);emit('C','RST_STREAM',0,3,4,'error code CANCEL');s.state='reset';s.req=[];s.resp=[];return true;}
+  const open=st.s.filter(x=>x.state==='open'||x.state==='half-closed').length;
+  const opening=st.s.find(x=>x.state==='open'&&x.req.length)||(open<st.max&&st.s.find(x=>x.state==='idle'));
+  if(opening){opening.state='open';const [t,f,len]=opening.req.shift();emit('C',t,f,opening.id,len,t==='HEADERS'?opening.path:'request body');if(!opening.req.length)opening.state='half-closed';return true;}
+  const ready=st.s.filter(x=>x.state==='half-closed'&&x.resp.length);if(!ready.length)return false;
+  const s=ready[st.rr++%ready.length];const [t,f,len]=s.resp.shift();emit('S',t,f,s.id,len,t==='HEADERS'?':status 200':'');if(!s.resp.length)s.state='closed';return true;}
+ function paint(){$('#h2-wire').innerHTML=st.wire.map(w=>`<div class="frame" style="border-color:var(--${col[w.id]})"><span class="mute">${w.dir==='C'?'client → server':'server → client'}</span><code>${hdr(w.len,w.type,w.flags,w.id)}</code><b>${w.type}</b> len=${w.len} flags=${w.type==='SETTINGS'?(w.flags?'ACK':'-'):[[1,'END_STREAM'],[4,'END_HEADERS']].filter(([b])=>w.flags&b).map(x=>x[1]).join('|')||'-'} stream=${w.id}${w.txt?` <span class="mute">${w.txt}</span>`:''}</div>`).join('')||'<span class="mute">Nothing sent yet.</span>';
+  $('#h2-wire').scrollTop=1e6;
+  $('#h2-bufs').innerHTML=st.s.map(s=>`<div class="ebox" style="border-color:var(--${col[s.id]})"><h5>stream ${s.id}: ${s.path}</h5><span class="pill ${s.state==='closed'?'ok':s.state==='reset'?'bad':s.state==='idle'?'warn':''}">${s.state==='idle'?'waiting to open':s.state}</span><div class="mono" style="margin-top:4px">${s.got.join(' · ')||'-'}</div><div class="mute">${s.bytes.toLocaleString('en')} bytes</div></div>`).join('');
+  $('#h2-next').disabled=!canNext();}
+ const canNext=()=>{const save=JSON.stringify(st);const ok=next();st=JSON.parse(save);return ok;};
+ $('#h2-next').onclick=()=>{next();paint();};$('#h2-all').onclick=()=>{let k=0;while(next()&&k++<200);paint();};
+ $('#h2-rst').onclick=()=>{const s=st.s.find(x=>x.id===3);if(s.state==='closed'||s.state==='reset')return;st.rst=true;$('#h2-rst').disabled=true;next();paint();};
+ $('#h2-reset').onclick=reset;$('#h2-max').onchange=reset;reset();
+})();
+
+/* ---------- ch9: TCP head-of-line blocking ---------- */
+(()=>{const R=slider('#hb-rtt','#hb-rv',ms),N=9,GAP=10,names=['A1','B1','C1','A2','B2','C2','A3','B3','C3'];let lost=4,running=false;
+ function cells(state){$('#hb-segs').innerHTML=names.map((n,i)=>`<div class="cell ${i===lost?'bad':''} ${state?state[i]:''}" data-i="${i}" title="click to lose this segment">${i+1}: ${n}${i===lost?' ✗':''}</div>`).join('');}
+ $('#hb-segs').onclick=e=>{const c=e.target.closest('.cell');if(!c||running)return;lost=+c.dataset.i===lost?-1:+c.dataset.i;cells();};
+ $('#hb-go').onclick=async()=>{if(running)return;running=true;const r=+R.value,q=$('#hb-m').value==='quic';
+  const arr=names.map((_,i)=>i*GAP+r/2);if(lost>=0){const seen=lost<N-1?arr[lost+1]:arr[lost]+r/2;arr[lost]=seen+r;}
+  const del=names.map((n,i)=>q?Math.max(...names.map((m,j)=>j<=i&&m[0]===n[0]?arr[j]:0)):Math.max(...arr.slice(0,i+1)));
+  const end=Math.max(...del)+5;
+  for(let t=0;t<=end;t+=4){
+   const s=names.map((_,i)=>del[i]<=t?'ok':arr[i]<=t?'busy':i===lost&&i*GAP+r/2<=t?'bad':'');
+   cells(s);const next=q?'per stream':(del.findIndex(d=>d>t)+1||'done');
+   const held=names.filter((_,i)=>arr[i]<=t&&del[i]>t);
+   $('#hb-rx').innerHTML=`t = ${Math.round(t)} ms<br>${q?'QUIC: each stream delivers its own frames in order':'TCP next expected segment: '+next}<br>received but held (not given to HTTP): ${held.join(' ')||'none'}`;
+   $('#hb-bars').innerHTML=['A','B','C'].map(k=>{const idx=names.map((n,i)=>n[0]===k?i:-1).filter(i=>i>=0),got=idx.filter(i=>del[i]<=t).length,done=Math.max(...idx.map(i=>del[i]));
+    return `<div class="lb2"><span>stream ${k}</span><div class="meter"><i style="width:${got/3*100}%"></i></div><b>${got===3?'done at '+ms(done):got+'/3'}</b></div>`;}).join('');
+   await sleep(25);}
+  running=false;};
+ cells();
+})();
+
+/* ---------- ch10: setup race ---------- */
+(()=>{const R=slider('#qu-rtt','#qu-rv',ms),WAIT=300;
+ function draw(){const r=+R.value,u=$('#qu-udp').checked;
+  const P=[['TCP + TLS 1.2',3,false],['TCP + TLS 1.3',2,false],['QUIC (HTTP/3)',1,true],['TCP + TLS 1.3, 0-RTT',1,false],['QUIC, 0-RTT',0,true]];
+  const rows=P.map(([l,k,quic])=>{const segs=[];let t=0;
+   if(quic&&u){segs.push([0,WAIT,'bad','QUIC attempt, no answer']);t=WAIT;k=l.includes('0-RTT')?1:2;l+=' → TCP';}
+   if(k)segs.push([t,t+k*r,'warn','handshakes']);const req=t+k*r;segs.push([req,req+r,'svc','request and response']);
+   return{label:l,segs,mark:req,note:`request at ${ms(req)} · response ${ms(req+r)}`};});
+  wfRows($('#qu-wf'),rows,(u?WAIT:0)+4*r+40);}
+ R.addEventListener('input',draw);$('#qu-udp').onchange=draw;draw();
+})();
+
+/* ---------- ch11: connection migration ---------- */
+(()=>{const lg=$('#mg-log'),WIFI={net:'Wi-Fi',addr:'192.0.2.10:50000'},G5={net:'5G',addr:'198.51.100.77:61000'},SRV='203.0.113.10:443';let st;
+ function reset(){st={on:WIFI,started:false,switched:false,done:false,pct:0,conn:1,cid:'c7a1',spare:'e92f',path:WIFI.addr,srv:1};lg.innerHTML='';paint();}
+ const q=()=>$('#mg-p').value==='quic',lb=()=>$('#mg-lb').checked;
+ const hashSrv=a=>a===WIFI.addr?1:2; // the load balancer's hash of the client address and port
+ function paint(){const Q=q();
+  $('#mg-phone').innerHTML=`<div>network: <b>${st.on.net}</b></div><div class="mono">address ${st.on.addr}</div>${Q?`<div class="mono">using connection ID ${st.cid}; spare ID ${st.spare||'none'}</div>`:''}<div style="margin-top:6px" class="meter"><i style="width:${st.pct}%"></i></div><div class="mute">download ${st.pct}% on connection #${st.conn}</div>`;
+  const rows=!st.started?'<tr><td colspan="3" class="mute">empty</td></tr>':Q?`<tr class="hl"><td class="mono">CID ${st.cid}</td><td>conn #${st.conn}</td><td>path ${st.path}</td></tr>${st.spare?`<tr><td class="mono">CID ${st.spare}</td><td>conn #${st.conn}</td><td>spare, given to the client</td></tr>`:''}`:`<tr class="hl"><td class="mono">${st.path} ↔ ${SRV}</td><td>conn #${st.conn}</td><td>TCP + TLS keys</td></tr>`;
+  $('#mg-tab').innerHTML=`${lb()?`<div class="mute">load balancer: packet goes to server ${hashSrv(st.on.addr)} (hash of address and port). Table below is server ${st.srv}.</div>`:''}<table class="ctab"><tr><th>${Q?'key: connection ID':'key: socket pair'}</th><th>connection</th><th>state</th></tr>${rows}</table>`;}
+ $('#mg-1').onclick=()=>{if(st.started)return;st.started=true;st.pct=40;log(lg,`${q()?'QUIC':'TCP + TLS'} connection #1 from ${WIFI.addr}. The download reaches 40%.`,'info');if(q())log(lg,'server → client: NEW_CONNECTION_ID e92f (a spare ID for later)','mute');paint();};
+ $('#mg-2').onclick=()=>{if(!st.started||st.switched)return log(lg,'Start the download first.','warn');st.switched=true;st.on=G5;log(lg,`Phone leaves Wi-Fi. New address ${G5.addr}. Nothing is sent to the server about it.`,'warn');paint();};
+ $('#mg-3').onclick=()=>{if(!st.switched||st.done)return log(lg,'Switch to 5G first.','warn');st.done=true;const Q=q(),to=lb()?hashSrv(G5.addr):1;
+  if(lb())log(lg,`load balancer hashes ${G5.addr} → server ${to}. The connection lives on server 1.`,to===1?'ok':'bad');
+  const restart=why=>{log(lg,why,'bad');st.conn=2;st.pct=0;st.path=G5.addr;st.srv=to;st.cid='4b0d';st.spare=null;
+   log(lg,Q?'Client opens a new QUIC connection: 1 RTT handshake. The download starts again from 0% unless the app asks for a byte range.':'Client opens a new connection: TCP (1 RTT) + TLS (1 RTT). The download starts again from 0% unless the app asks for a byte range.','warn');paint();};
+  if(!Q){log(lg,`server: packet from ${G5.addr} ↔ ${SRV}. Lookup by socket pair: no match.`,'bad');return restart('server answers with RST. The phone\'s connection #1 is dead.');}
+  if($('#mg-dis').checked)return restart('Server sent disable_active_migration during the handshake. The client MUST NOT send from a new address on this connection.');
+  log(lg,`client sends with the spare connection ID ${st.spare} from ${G5.addr}`,'info');
+  if(to!==1){log(lg,`server ${to}: no connection has ID ${st.spare}. It cannot decrypt the packet and drops it.`,'bad');return restart('Fix: a load balancer that routes QUIC by connection ID, not by address.');}
+  log(lg,`server 1: lookup by connection ID ${st.spare}: match, connection #1. Address is new, so validate the path.`,'ok');
+  log(lg,`server → ${G5.addr}: PATH_CHALLENGE 9c41e7…`,'msg');log(lg,'client → server: PATH_RESPONSE 9c41e7… (same data echoed)','msg');
+  st.cid=st.spare;st.spare=null;st.path=G5.addr;st.pct=100;log(lg,'Path validated. Old ID c7a1 retired. The download goes on from 40% to 100% on connection #1.','ok');paint();};
+ $('#mg-reset').onclick=reset;$('#mg-p').onchange=$('#mg-lb').onchange=$('#mg-dis').onchange=reset;reset();
+})();
+
+/* ---------- ch12: BGP route choice ---------- */
+(()=>{const lg=$('#bg-log'),POPS=[['Karachi','IX peering',[64500],8],['Dubai','transit AS64501',[64501,64500],35],['Singapore','cheap transit AS64502',[64502,64500],75],['Frankfurt','transit AS64503',[64503,64510,64500],130]];
+ let on,cur;
+ $('#bg-pops').innerHTML=POPS.map(([n],i)=>`<label><input type="checkbox" data-i="${i}" checked> ${n} announces</label>`).join('');
+ const best=()=>{const c=POPS.map((p,i)=>({i,n:p[0],via:p[1],path:p[2],rtt:p[3],lp:i===2&&$('#bg-lp').checked?200:100})).filter(r=>on[r.i]);
+  c.sort((a,b)=>b.lp-a.lp||a.path.length-b.path.length||a.i-b.i);return{c,w:c[0]};};
+ function draw(){const {c,w}=best(),maxlp=w&&w.lp;
+  $('#bg-tab').innerHTML='<tr><th>route to 203.0.113.0/24</th><th>learned via</th><th>LOCAL_PREF</th><th>AS_PATH</th><th>RTT</th><th>why</th></tr>'+
+   POPS.map((p,i)=>{const r=c.find(x=>x.i===i);if(!r)return`<tr><td>${p[0]} PoP</td><td colspan="5" class="mute">withdrawn, not in the table</td></tr>`;
+    const why=r===w?(c.filter(x=>x.lp===maxlp).length===1&&c.length>1?'chosen: highest LOCAL_PREF':'chosen: shortest AS_PATH among the highest LOCAL_PREF'):r.lp<maxlp?'lower LOCAL_PREF':'longer AS_PATH';
+    return`<tr class="${r===w?'ok':''}"><td>${p[0]} PoP</td><td>${r.via}</td><td>${r.lp}</td><td class="mono">${r.path.join(' ')}</td><td>${p[3]} ms</td><td>${why}</td></tr>`;}).join('');
+  return w;}
+ function update(){const w=draw();if(!w){log(lg,'No route left. 203.0.113.10 is unreachable from this ISP.','bad');cur=null;return;}
+  if(cur&&cur!==w.n)log(lg,`New best route: users of this ISP now reach ${w.n} (${w.rtt} ms).${w.n==='Singapore'&&on[0]?' Karachi still announces, but policy wins over distance.':''}`,w.rtt>50?'warn':'ok');cur=w.n;}
+ $('#bg-pops').onchange=e=>{on[+e.target.dataset.i]=e.target.checked;update();};$('#bg-lp').onchange=update;
+ $('#bg-flip').onclick=()=>{const w=best().w;if(!w)return;log(lg,`A browser has an open TCP connection to ${w.n}, downloading a video.`,'info');
+  on[w.i]=false;$(`#bg-pops input[data-i="${w.i}"]`).checked=false;const n=best().w;draw();cur=n&&n.n;
+  if(!n)return log(lg,'No route left.','bad');
+  log(lg,`${w.n} withdraws its route (maintenance or overload). The next packets of the same connection go to ${n.n}.`,'warn');
+  log(lg,`${n.n}: no socket for this connection → RST. The browser must open a new connection and ask again (RFC 4786 §4.1).`,'bad');};
+ $('#bg-reset').onclick=()=>{on=POPS.map(()=>true);$$('#bg-pops input').forEach(i=>i.checked=true);$('#bg-lp').checked=false;lg.innerHTML='';cur=null;update();};
+ $('#bg-reset').click();
+})();
+
+/* ---------- ch13: direct vs split ---------- */
+(()=>{const D=slider('#sp-d','#sp-dv',ms),E=slider('#sp-e','#sp-ev',ms),MSS=1460,SIZE=1e6,BBLOSS=0.0001;
+ // rounds of one RTT to send SIZE bytes: window starts at w0 segments, doubles each round, capped at 1.2/sqrt(p) (RFC 3649 §5).
+ const rounds=(p,w0)=>{const cap=Math.max(1,1.2/Math.sqrt(p));let segs=Math.ceil(SIZE/MSS),w=w0,n=0;while(segs>0){segs-=Math.min(w,cap);w=Math.min(w*2,Math.max(cap,w0));n++;}return n;};
+ function draw(){const d=+D.value,e=Math.min(+E.value,d-10),b=d-e,p=+$('#sp-l').value,cold=$('#sp-cold').checked;
+  const dr=rounds(p,10),dEnd=2*d+dr*d;
+  const t0=2*e+e/2,hsB=cold?2*b:0,ru=rounds(p,10),rb=rounds(BBLOSS,cold?10:1e9),t1=t0+hsB+rb*b,sEnd=Math.max(t1+e/2,t0+hsB+b+ru*e);
+  wfRows($('#sp-wf'),[
+   {label:'direct',segs:[[0,2*d,'warn','TCP + TLS 1.3 over the public path'],[2*d,dEnd,'svc','request + transfer']],note:`${(dEnd/1000).toFixed(2)} s · ${dr} rounds of ${d} ms`},
+   {label:'split: user–edge',segs:[[0,2*e,'warn','TCP + TLS 1.3 to the edge'],[2*e,t0,'edge','request to edge'],[t0+hsB+b,sEnd,'svc','edge streams to user']],note:`${ru} rounds of ${e} ms`},
+   {label:'split: edge–origin',segs:[...(cold?[[t0,t0+hsB,'warn','cold pool: TCP + TLS 1.3 on the backbone']]:[]),[t0+hsB,t1,'svc','backbone transfer']],note:`${rb} rounds of ${b} ms, ${cold?'cold':'warm'}`}],Math.max(dEnd,sEnd)*1.05);
+  $('#sp-stats').innerHTML=stat((dEnd/1000).toFixed(2)+' s','direct')+stat((sEnd/1000).toFixed(2)+' s','split',sEnd<dEnd?'ok':'bad')+stat(Math.round(1.2/Math.sqrt(p))+' segments','window limit on the public path')+stat(Math.round(1.2/Math.sqrt(BBLOSS))+' segments','window limit on the backbone (0.01% loss)');}
+ [D,E].forEach(s=>s.addEventListener('input',draw));$('#sp-l').onchange=$('#sp-cold').onchange=draw;draw();
+})();
+
+/* ---------- ch14: one request end to end ---------- */
+(()=>{const A=20,B=60,C=10,Dd=1;let steps=[],n=0,t=0;
+ const CONN={A:['browser ↔ edge','HTTP/3 over QUIC'],B:['edge ↔ shield','HTTP/2 over TLS, pooled'],C:['shield ↔ origin LB','HTTP/2 over TLS, pooled'],D:['LB ↔ app server','HTTP/1.1, pooled']};
+ function build(){const c=$('#ee-c').value,cold=$('#ee-cold').checked,s=[];
+  const hs=(k,r)=>cold?[[`cold pool: no idle ${k} connection. Open one: TCP + TLS 1.3`,2*r,k,'bad']]:[];
+  if(c==='first'){s.push(['DNS: shop.acmeshop.com → 203.0.113.10, the anycast IP (example lookup time)',20,null],
+    ['BGP carries the packets to the Karachi PoP',0,null],['QUIC + TLS 1.3 handshake with the edge: 1 RTT. Connection A is new.',A,'A','new'],
+    ['GET /products travels to the edge',A/2,'A'],['edge: DDoS filter, WAF, bot checks pass. Cache lookup: MISS',1,null],
+    ...hs('B',B),['edge → shield on pooled connection B, as HTTP/2 stream 17, over the backbone',B/2,'B'],['shield: MISS. First request for this key, so others for it wait (collapsing)',1,null],
+    ...hs('C',C),['shield → origin load balancer on pooled connection C, as HTTP/2 stream 31',C/2,'C'],['load balancer → app on pooled connection D. App reads the database and builds the page (example)',40+Dd,'D'],
+    ['response: app → LB → shield (stores a copy)',C/2,'C'],['shield → edge (stores a copy)',B/2,'B'],['edge → browser',A/2,'A']);}
+  else if(c==='second')s.push(['GET /logo.png on the open connection A, as a new QUIC stream. No handshake.',A/2,'A'],['edge: cache HIT',1,null],['edge → browser. The origin never sees this request.',A/2,'A']);
+  else s.push(['POST /checkout on the open connection A, as a new QUIC stream',A/2,'A'],['edge: WAF, bot check, rate limit pass. POST is not cacheable: pass it on',1,null],
+    ...hs('B',B),['edge → shield on pooled connection B, over the backbone',B/2,'B'],['shield: not cacheable, pass it on (no collapsing for POST)',1,null],...hs('C',C),
+    ['shield → origin LB on pooled connection C, as an HTTP/2 stream',C/2,'C'],['LB → checkout service on connection D. It writes the order (example)',60+Dd,'D'],
+    ['response back: C, then B',C/2+B/2,'B'],['edge → browser',A/2,'A']);
+  steps=s;n=0;t=0;$('#ee-out').innerHTML='';paint(null);}
+ function paint(cur){const used=new Set(steps.slice(0,n).map(x=>x[2]).filter(Boolean)),fresh=new Set(steps.slice(0,n).filter(x=>x[3]).map(x=>x[2]));
+  $('#ee-tab').innerHTML='<tr><th>connection</th><th>between</th><th>protocol</th><th>state</th></tr>'+Object.entries(CONN).map(([k,[w,p]])=>`<tr class="${cur===k?'hl':''}"><td>${k}</td><td>${w}</td><td>${p}</td><td>${fresh.has(k)?'<span class="pill '+(k==='A'?'warn':'bad')+'">opened now</span>':used.has(k)?'<span class="pill ok">reused</span>':k==='A'&&$('#ee-c').value==='first'?'not open yet':'<span class="pill">open, idle</span>'}</td></tr>`).join('');
+  $('#ee-stats').innerHTML=stat(ms(t),'so far')+stat(`${n} / ${steps.length}`,'steps');$('#ee-next').disabled=n>=steps.length;}
+ function step(){const s=steps[n++];if(!s)return;t+=s[1];const d=document.createElement('div');d.className=s[3]==='bad'?'bad':s[1]===0?'mute':'';d.textContent=`+${Math.round(s[1])} ms  ${s[0]}`;$('#ee-out').appendChild(d);paint(s[2]);}
+ $('#ee-next').onclick=step;$('#ee-all').onclick=()=>{while(n<steps.length)step();};$('#ee-reset').onclick=build;$('#ee-c').onchange=$('#ee-cold').onchange=build;build();
+})();
+</script>
+<script type="module" src="../runtime/lab.js"></script>
+</body>
+</html>

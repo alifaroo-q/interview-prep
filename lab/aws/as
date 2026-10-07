@@ -1,0 +1,5 @@
+#!/bin/sh
+# as NAME COMMAND...: run COMMAND with the access key of IAM user NAME (made by mkuser) instead of the admin key.
+n=$1; shift
+[ -f "/tmp/keys/$n" ] || { echo "no key for $n, run: mkuser $n"; exit 1; }
+AWS_ACCESS_KEY_ID=$(cut -f1 "/tmp/keys/$n") AWS_SECRET_ACCESS_KEY=$(cut -f2 "/tmp/keys/$n") exec "$@"

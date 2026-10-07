@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CDNs explained: edge caching, origin connections and the backbone</title>
+<style>
+:root{
+  --bg:#0f1218;--panel:#161b24;--panel2:#1d2430;--line:#2b3445;--text:#e3e8f0;--mute:#93a0b4;
+  --edge:#4ea1ff;--svc:#3ecf8e;--data:#f5b942;--msg:#b58cff;--bad:#ff6b6b;--plat:#7ad3e0;--client:#e0e6ef;
+  --ok:#3ecf8e;--warn:#f5b942;
+}
+body.light{--bg:#f6f7fa;--panel:#fff;--panel2:#eef1f6;--line:#d6dce6;--text:#1b2230;--mute:#5d6b80;--client:#39465a}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+code,pre,.mono{font-family:ui-monospace,"JetBrains Mono",Consolas,monospace;font-size:.88em}
+code{background:var(--panel2);padding:1px 5px;border-radius:4px}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;line-height:1.45}
+a{color:var(--edge)}
+/* layout */
+#side{position:fixed;top:0;left:0;bottom:0;width:290px;background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:16px 12px;z-index:5}
+#side h1{font-size:17px;margin:0 6px 4px}
+#side .sub{color:var(--mute);font-size:13px;margin:0 6px 10px}
+#prog{height:6px;background:var(--panel2);border-radius:3px;margin:0 6px 12px;overflow:hidden}
+#prog i{display:block;height:100%;width:0;background:var(--svc);transition:width .4s}
+#nav a{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-radius:6px;color:var(--text);text-decoration:none;font-size:14px;line-height:1.35}
+#nav a:hover{background:var(--panel2)}
+#nav a.cur{background:var(--panel2);box-shadow:inset 3px 0 var(--edge)}
+#nav a .num{color:var(--mute);min-width:22px;font-variant-numeric:tabular-nums}
+#nav a.done .num{color:var(--svc)}
+#nav a.done .num::after{content:" ✓"}
+#tools{display:flex;gap:6px;margin:14px 6px 0}
+main{margin-left:290px;padding:30px 40px 120px;max-width:1040px}
+#menu{display:none}
+@media(max-width:900px){#side{transform:translateX(-100%);transition:.25s}#side.open{transform:none}main{margin-left:0;padding:20px 16px 100px}#menu{display:block;position:fixed;top:10px;right:10px;z-index:6}}
+/* sections */
+section.ch{padding:10px 0 40px;border-bottom:1px solid var(--line);margin-bottom:30px}
+section.ch>h2{font-size:28px;line-height:1.2;margin:10px 0 4px}
+.topics{color:var(--mute);font-size:13px;margin-bottom:14px}
+h3{font-size:20px;margin:30px 0 8px}
+h4{font-size:16px;margin:20px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+p{margin:10px 0}
+.lead{font-size:18px}
+.note{border-left:3px solid var(--edge);background:var(--panel);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0}
+.note.warn{border-color:var(--warn)}.note.bad{border-color:var(--bad)}.note.good{border-color:var(--ok)}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel2)}
+.done-btn{margin-top:18px}
+/* controls */
+button,select,input[type=text]{font:inherit;font-size:14px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 12px}
+button{cursor:pointer}
+button:hover{border-color:var(--edge)}
+button.pri{background:var(--edge);border-color:var(--edge);color:#fff}
+button.dan{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.45;cursor:default}
+label{font-size:14px;color:var(--mute)}
+input[type=range]{vertical-align:middle;width:160px}
+/* widget box */
+.lab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin:18px 0}
+.lab>.t{font-weight:600;margin-bottom:4px}
+.lab>.t::before{content:"▶ ";color:var(--edge)}
+.lab .hint{color:var(--mute);font-size:14px;margin:0 0 10px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.log{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;height:190px;overflow:auto;font:13px/1.5 ui-monospace,Consolas,monospace}
+.log .ok{color:var(--ok)}.log .bad{color:var(--bad)}.log .warn{color:var(--warn)}.log .info{color:var(--edge)}.log .msg{color:var(--msg)}.log .mute{color:var(--mute)}
+.stat{display:inline-block;background:var(--panel2);border-radius:8px;padding:6px 12px;margin:3px;font-size:14px}
+.stat b{font-size:18px;display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+/* diagram nodes */
+.stage{padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:auto}
+.col{display:flex;flex-direction:column;align-items:center;gap:4px}
+.row{display:flex;justify-content:center;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.row.mid{align-items:center}
+.n{border:2px solid var(--svc);color:var(--text);background:var(--panel);border-radius:8px;padding:6px 12px;font-size:14px;text-align:center;min-width:110px;transition:opacity .35s,box-shadow .35s,transform .35s}
+.n small{display:block;color:var(--mute);font-size:11.5px}
+.n.edge{border-color:var(--edge)}.n.svc{border-color:var(--svc)}.n.data{border-color:var(--data);border-radius:14px 14px 8px 8px}.n.msg{border-color:var(--msg)}.n.bad{border-color:var(--bad)}.n.plat{border-color:var(--plat);border-style:dashed}.n.client{border-color:var(--client)}
+.n.dim{opacity:.35}.n.dead{border-color:var(--bad);opacity:.5;text-decoration:line-through}
+.n.hot{box-shadow:0 0 0 4px rgba(78,161,255,.35)}
+.n.hotok{box-shadow:0 0 0 4px rgba(62,207,142,.4)}
+.n.hotbad{box-shadow:0 0 0 4px rgba(255,107,107,.45)}
+.ar{color:var(--mute);font-size:18px;line-height:1;text-align:center;transition:opacity .35s}
+.ar small{font-size:11px;display:block}
+.box{border:1px dashed var(--line);border-radius:10px;padding:10px;position:relative}
+.box>.bt{position:absolute;top:-10px;left:10px;background:var(--bg);padding:0 6px;font-size:12px;color:var(--mute)}
+.fan{display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
+.fan>.col{gap:2px}
+/* build-up */
+.build{margin:16px 0}
+.build .off{opacity:0 !important;pointer-events:none}
+.build .fresh{animation:fresh 1.1s}
+@keyframes fresh{0%{transform:scale(.92);box-shadow:0 0 0 6px rgba(78,161,255,.55)}100%{transform:none}}
+.build .caps{min-height:52px;margin-top:10px}
+.build .cap{display:none;margin:0;background:var(--panel);border-radius:8px;padding:10px 14px;border:1px solid var(--line)}
+.build .cap.on{display:block}
+.build .ctl{display:flex;gap:8px;align-items:center;margin-top:8px}
+.build .ctl span{color:var(--mute);font-size:13px}
+/* misc widget bits */
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--panel2);border:1px solid var(--line)}
+.pill.ok{border-color:var(--ok);color:var(--ok)}.pill.bad{border-color:var(--bad);color:var(--bad)}.pill.warn{border-color:var(--warn);color:var(--warn)}
+.cells{display:flex;flex-wrap:wrap;gap:4px}
+.cell{min-width:34px;height:30px;border:1px solid var(--line);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--panel2);padding:0 4px}
+.cell.msg{border-color:var(--msg)}.cell.bad{border-color:var(--bad);color:var(--bad)}.cell.ok{border-color:var(--ok)}.cell.busy{border-color:var(--warn);background:rgba(245,185,66,.18)}
+.meter{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--svc);transition:width .3s}
+.flip{cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:90px}
+.flip .b{display:none;color:var(--mute);margin-top:6px;font-size:14px}
+.flip.open .b{display:block}
+.chk label{display:block;color:var(--text);padding:3px 0}
+.state{display:inline-block;padding:6px 14px;border-radius:8px;font-weight:700;border:2px solid var(--line);margin:2px}
+.state.on.closed{border-color:var(--ok);color:var(--ok)}.state.on.open{border-color:var(--bad);color:var(--bad)}.state.on.half{border-color:var(--warn);color:var(--warn)}
+.wf{position:relative;height:22px;margin:3px 0;font-size:12px}
+.wf i{position:absolute;top:0;height:100%;background:var(--edge);border-radius:4px;opacity:.85}
+.wf span{position:absolute;left:0;top:2px;width:120px;color:var(--mute)}
+.wfwrap{padding-left:125px;position:relative}
+.wfwrap.wide{padding-left:200px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:14px}
+</style>
+</head>
+<body>
+<button id="menu" onclick="document.getElementById('side').classList.toggle('open')">☰ Menu</button>
+<aside id="side">
+  <h1>CDNs explained</h1>
+  <div class="sub">12 chapters · hands-on labs</div>
+  <div id="prog"><i></i></div>
+  <nav id="nav"></nav>
+  <div id="tools"><button onclick="document.body.classList.toggle('light')">Light / dark</button><button onclick="localStorage.removeItem('cdn-done');location.reload()">Reset progress</button></div>
+</aside>
+<main>
+
+
+<style>
+.ctab{border-collapse:collapse;font:12.5px ui-monospace,Consolas,monospace;width:100%;margin:4px 0}
+.ctab th,.ctab td{border:1px solid var(--line);padding:3px 7px}
+.ctab tr.hl td{background:rgba(78,161,255,.15)}
+.ctab tr.ok td{background:rgba(62,207,142,.13)}
+.ctab tr.badrow td{background:rgba(255,107,107,.13)}
+.edges{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin:10px 0}
+.ebox{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)}
+.ebox h5{margin:0 0 4px;font-size:13px}
+.ebox.hot{box-shadow:0 0 0 3px rgba(78,161,255,.4)}
+.slots{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.slot{border:2px solid var(--line);border-radius:8px;padding:4px 8px;font:12px ui-monospace,Consolas,monospace;min-width:92px;text-align:center}
+.slot.idle{border-color:var(--plat);border-style:dashed}.slot.busy{border-color:var(--svc);background:rgba(62,207,142,.15)}.slot.dead{border-color:var(--bad);color:var(--bad);text-decoration:line-through;opacity:.7}.slot.new{box-shadow:0 0 0 3px rgba(78,161,255,.4)}
+.trace{font:13px/1.55 ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:8px}
+.trace div{padding:1px 0}
+.trace .ok{color:var(--ok)}.trace .bad{color:var(--bad)}.trace .warn{color:var(--warn)}.trace .mute{color:var(--mute)}
+.tl{position:relative;height:34px;background:var(--panel2);border-radius:6px;margin:8px 0 22px}
+.tl i{position:absolute;top:0;height:100%;opacity:.75}
+.tl b{position:absolute;top:-4px;width:3px;height:42px;background:var(--text)}
+.tl span{position:absolute;top:36px;font-size:11px;color:var(--mute);transform:translateX(-50%)}
+.ladder{font:12.5px/1.5 ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:120px}
+.ladder .r{display:grid;grid-template-columns:80px 1fr 80px;gap:6px;align-items:center}
+.ladder .r .m{text-align:center;border-bottom:1px solid var(--mute);padding:0 4px}
+.ladder .r.l .m{border-color:var(--edge)}
+.svgmap{width:100%;height:auto;background:var(--bg);border:1px solid var(--line);border-radius:10px}
+.svgmap text{fill:var(--text);font:12px system-ui,sans-serif}
+.svgmap .sm{fill:var(--mute);font-size:10.5px}
+</style>
+
+<section class="ch" id="c1" data-title="What a CDN is, and why distance costs time">
+<h2>1. What a CDN is, and why distance costs time</h2>
+<div class="topics">Covers: notes 1, 4, 5 · Sources: Cloudflare Learning Center (What is a CDN, CDN performance), RFC 9293 and RFC 8446 via the Cloudflare TLS 1.3 blog for round trip counts</div>
+<p class="lead">A content delivery network (CDN) is a group of servers in many places that keeps copies of web content close to users. Cloudflare's definition: "a geographically distributed group of servers that speeds up the delivery of web content by caching it closer to users."</p>
+<p>The server that holds the real content is the <b>origin</b>. A CDN server near users is an <b>edge</b>. The building that holds edges in one city is an <b>edge location</b> (vendors also say PoP, point of presence).</p>
+<p>The problem a CDN solves is distance. Data in fibre cannot go faster than light in glass, so a request from Mumbai to an origin in Virginia and back takes a fixed minimum time. That time is the <b>round trip time</b> (RTT). Bandwidth does not help here. A faster link sends more bytes per second, but each question still waits one RTT for its answer.</p>
+<p>A web page needs several round trips before the first byte of content arrives: one to open the TCP connection, one for the TLS 1.3 handshake (two for TLS 1.2), and one for the HTTP request. Then the browser reads the HTML and asks for the CSS, scripts and images, which costs more round trips. Every round trip costs the full RTT. If the RTT is 200 ms, four round trips cost 800 ms before anything else is counted.</p>
+<p>A CDN shortens the RTT. The browser talks to an edge 10 to 30 ms away instead of an origin 200 ms away. When the edge has a copy (a <b>cache hit</b>), the long trip does not happen. When the edge has no copy (a <b>cache miss</b>), the edge fetches it from the origin, keeps a copy, and sends it on.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">Browser in Mumbai</div>
+  <div class="ar" data-s="1">↓ <small>without a CDN: every round trip goes the full distance</small></div>
+  <div class="n svc" data-s="1">Origin in Virginia<small>example RTT 200 ms</small></div>
+  <div class="ar" data-s="2">↑ <small>with a CDN: the browser talks to an edge instead</small></div>
+  <div class="n edge" data-s="2">Edge in Mumbai<small>example RTT 15 ms</small></div>
+  <div class="ar" data-s="3">↓ <small>hit: the edge has a copy and answers at once</small></div>
+  <div class="n data" data-s="3">Edge cache<small>copies of files, each with a lifetime</small></div>
+  <div class="ar" data-s="4">↓ <small>miss: the edge asks the origin over a connection it already has open</small></div>
+  <div class="n plat" data-s="4">Pool of open connections to the origin</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">Without a CDN, the browser opens its connection to the origin. Each of its round trips costs the full 200 ms (example number).</p>
+  <p class="cap" data-s="2">With a CDN, the site's name points to the CDN. The browser opens its connection to a nearby edge, so the TCP and TLS handshakes cost 15 ms each, not 200 ms.</p>
+  <p class="cap" data-s="3">The edge keeps copies of responses. On a hit, it answers from its cache. The origin does no work and the long trip does not happen.</p>
+  <p class="cap" data-s="4">On a miss, the edge must go to the origin. It sends the request on a connection it opened earlier, so it pays one long round trip, not three. Chapters 8 to 11 are about this path.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="w-load">
+ <div class="t">Lab: count the round trips of one page load</div>
+ <p class="hint">A page is one HTML file plus the files it lists. The browser opens one connection and asks for all listed files at once over HTTP/2, so they cost one more round trip together. Pick a preset, then move the sliders. Watch which bars are long: they are the round trips that cross the long distance. The RTT values are example numbers, not measurements. "Break it": a miss where the edge has no open connection to the origin. The page is slower than with no CDN, because the edge pays its own TCP and TLS handshakes over the long distance.</p>
+ <div class="bar">
+  <button data-p="direct">No CDN</button><button data-p="hit">CDN, cache hit</button><button data-p="warm">CDN, miss, pooled connection</button><button class="dan" data-p="cold">Break it: CDN, miss, new connection</button>
+ </div>
+ <div class="bar">
+  <label>Browser to origin RTT <input type="range" id="ld-ro" min="20" max="300" value="200"> <b id="ld-ro-v"></b></label>
+  <label>Browser to edge RTT <input type="range" id="ld-re" min="5" max="60" value="15"> <b id="ld-re-v"></b></label>
+ </div>
+ <div class="bar">
+  <label>Path <select id="ld-mode"><option value="direct">No CDN</option><option value="hit">CDN, cache hit</option><option value="warm">CDN, miss, pooled connection to origin</option><option value="cold">CDN, miss, new connection to origin</option></select></label>
+  <label><input type="checkbox" id="ld-tls12"> TLS 1.2 (2 round trips) instead of TLS 1.3 (1)</label>
+ </div>
+ <div class="wfwrap wide" id="ld-wf"></div>
+ <div id="ld-stats"></div>
+</div>
+<table>
+<tr><th>Path</th><th>Long round trips (browser or edge to origin)</th><th>Short round trips (browser to edge)</th></tr>
+<tr><td>No CDN</td><td>TCP, TLS, HTML, files: 4 (5 with TLS 1.2)</td><td>0</td></tr>
+<tr><td>CDN, hit</td><td>0</td><td>4</td></tr>
+<tr><td>CDN, miss, pooled connection</td><td>1 per miss round (HTML, then files)</td><td>4</td></tr>
+<tr><td>CDN, miss, new connection</td><td>TCP + TLS + request for the first miss, then 1</td><td>4</td></tr>
+</table>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c2" data-title="Reaching the nearest edge: anycast and DNS">
+<h2>2. Reaching the nearest edge: anycast and DNS</h2>
+<div class="topics">Covers: note 4 · Sources: Cloudflare Learning Center (What is Anycast), Cloudflare blog "A brief anycast primer" (2011, mechanism only), AWS CloudFront docs (How CloudFront delivers content), RFC 7871 (EDNS Client Subnet)</div>
+<p class="lead">The browser does not know where edges are. The CDN sends it to a near edge in one of two ways: with <b>anycast</b>, where many edge locations announce the same IP address, or with <b>DNS steering</b>, where the CDN's DNS server gives each user the IP address of a near edge.</p>
+<h3>Anycast</h3>
+<p>Normally one IP address belongs to one machine (unicast). With anycast, every edge location announces the same IP address range to the internet's routers with BGP, the protocol that networks use to tell each other which addresses they can reach. Each router keeps the routes it heard and picks one, so a packet goes to the edge location that is "closest" in BGP terms. Cloudflare: "In the context of a CDN, Anycast typically routes incoming traffic to the nearest data center with the capacity to process the request efficiently."</p>
+<p>BGP closest is not always fastest. BGP prefers the path through the fewest networks (AS hops) and the business rules of each network, not the lowest delay. Usually the two agree. When they do not, a user can land on an edge further away than the best one.</p>
+<p>If one edge location fails or is taken offline, it stops announcing the route. Routers then pick the next route they know, and traffic moves to the next location without any DNS change.</p>
+<h3>DNS steering</h3>
+<p>Here each edge location has its own IP addresses. The site's name is a CNAME to a CDN name. The CDN's authoritative DNS server answers with the address of an edge near the person who asked. AWS: "DNS routes the request to the CloudFront POP (edge location) that can best serve the request, typically the nearest CloudFront POP in terms of latency."</p>
+<p>The DNS server does not see the user. It sees the user's DNS resolver. If the user uses a resolver far away, the answer fits the resolver's location, not the user's. EDNS Client Subnet (RFC 7871) lets the resolver pass on a shortened form of the user's address so the CDN can choose better. The RFC notes it "has some known operational and privacy shortcomings".</p>
+
+<div class="lab" id="w-any">
+ <div class="t">Lab: which edge location does each user reach?</div>
+ <p class="hint">Four users, four edge locations. The table is each user's route table: one row per route that the user's network heard, with the AS hops and an example RTT. In anycast mode the router picks the fewest AS hops (the highlighted row), not the lowest RTT. Look at Toronto: the route with fewest hops is not the fastest. Click an edge location to take it offline and watch the routes move. In DNS mode, the CDN picks by the resolver's location. "Break it": give Mumbai a public resolver in Virginia with no client subnet. All numbers are examples.</p>
+ <div class="bar"><label>Mode <select id="any-mode"><option value="any">Anycast (BGP picks)</option><option value="dns">DNS steering (CDN DNS picks)</option></select></label>
+ <label>Mumbai's resolver <select id="any-res"><option value="local">ISP resolver in Mumbai</option><option value="far">Break it: public resolver in Virginia, no client subnet</option><option value="ecs">Public resolver in Virginia, with client subnet</option></select></label>
+ <button id="any-reset">All edges online</button></div>
+ <div class="bar" id="any-pops"></div>
+ <div class="edges" id="any-users"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c3" data-title="Cache hit and cache miss">
+<h2>3. Cache hit and cache miss</h2>
+<div class="topics">Covers: notes 1, 5 · Sources: RFC 9111 (HTTP Caching) §2, §4; Cloudflare Learning Center (What is caching, cache hit ratio); nginx docs (ngx_http_proxy_module: proxy_cache, $upstream_cache_status)</div>
+<p class="lead">An edge is a <b>reverse proxy with a cache</b>. It receives the request, makes a <b>cache key</b> from it, and looks the key up in its storage. Found and still fresh: a hit, answered from storage. Not found: a miss, sent to the origin. The response is stored under the key if the rules allow it, then sent to the user.</p>
+<p>The cache key is normally the scheme, host, path and query string, such as <code>https://www.acmeshop.com/static/logo.svg</code>. RFC 9111 §2: many caches "only cache GET responses and therefore only use the URI as the cache key." Chapter 5 shows how the key can grow.</p>
+<p>Each stored copy has a <b>freshness lifetime</b>, set by the origin with headers such as <code>Cache-Control: max-age=3600</code> (fresh for 3600 seconds). When it is older than that, it is <b>stale</b>. A stale copy is not used as is. The edge first checks with the origin (chapter 6).</p>
+<p>Each edge location has its own cache. A file cached in Frankfurt is not in Singapore. The first user in each location gets a miss. The share of requests that are hits is the <b>cache hit ratio</b>: hits divided by hits plus misses.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">User: GET /static/logo.svg</div>
+  <div class="ar" data-s="2">↓</div>
+  <div class="n edge" data-s="2">Edge: key = https://www.acmeshop.com/static/logo.svg</div>
+  <div class="ar" data-s="3">↓ look up</div>
+  <div class="n data" data-s="3">Cache: not found (MISS)</div>
+  <div class="ar" data-s="4">↓ fetch</div>
+  <div class="n svc" data-s="4">Origin: 200 OK, Cache-Control: max-age=3600</div>
+  <div class="ar" data-s="5">↑ store, then send</div>
+  <div class="n data" data-s="5">Cache: key → response, stored at 10:00:00, fresh until 11:00:00</div>
+  <div class="n client" data-s="6">Next user, same key: HIT, no trip to the origin</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">A user asks for a file. The name resolves to the CDN (chapter 2), so the request reaches an edge.</p>
+  <p class="cap" data-s="2">The edge builds the cache key from the request: scheme, host, path and query string.</p>
+  <p class="cap" data-s="3">The edge looks the key up. The first time, nothing is there. That is a miss.</p>
+  <p class="cap" data-s="4">The edge sends the request to the origin. The origin answers and says, in Cache-Control, how long the answer may be reused.</p>
+  <p class="cap" data-s="5">The edge stores the response under the key, with the time it was stored. Then it sends the response to the user.</p>
+  <p class="cap" data-s="6">The next request for the same key, at the same edge, before the lifetime ends, is a hit. The origin never sees it.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="w-cache">
+ <div class="t">Lab: three edge locations, one origin</div>
+ <p class="hint">Each box is the cache of one edge location: key, age and lifetime of each stored copy. Pick a user's city and a file, then send. Watch the city's table change, and the origin request count. The lifetime here is 60 s on a clock you move by hand. Try: send logo.svg from Frankfurt twice (miss, then hit). Then send it from Singapore: a miss, because Singapore has its own cache. "Break it": move the clock +60 s and send again. The copy is stale, so the edge must ask the origin.</p>
+ <div class="bar"><label>User in <select id="ca-city"><option>Frankfurt</option><option>Singapore</option><option>Virginia</option></select></label>
+ <label>File <select id="ca-file"><option>/static/logo.svg</option><option>/static/app.js</option><option>/index.html</option></select></label>
+ <button class="pri" id="ca-send">Send GET</button><button id="ca-burst">20 random requests</button><button class="dan" id="ca-tick">Break it: clock +60 s</button><button id="ca-reset">Reset</button></div>
+ <div class="edges" id="ca-edges"></div>
+ <div id="ca-stats"></div>
+ <div class="log" id="ca-log" style="height:120px"></div>
+</div>
+
+<div class="lab term" data-tool="cdn" id="ca-real">
+ <div class="t">Lab: a real edge cache (nginx) in front of a real origin</div>
+ <p class="hint">A shell in Docker. <code>cdn-edge</code> is nginx with <code>proxy_cache</code>, a real caching reverse proxy. <code>cdn-origin</code> is a second nginx that serves files over TLS. Between them sits Toxiproxy, which adds 40 ms each way, so the origin is 80 ms away. The edge adds <code>X-Cache</code> (the value of nginx's <code>$upstream_cache_status</code>) and <code>X-Edge-Connect</code> (time to open the connection to the origin, empty when the origin was not called). The lab origin gives static files a 10 s lifetime (<code>max-age=10</code>) so you do not wait long. <code>req</code> is a curl that prints the status, X-Cache, X-Edge-Connect and the total time.</p>
+ <p class="hint">Click "Request logo.svg" twice. The first is MISS and takes about 0.17 s (a new connection to the origin, then the request). The second is HIT in about 1 ms, with no origin connect time. Click "Show cache files": each file on the edge's disk starts with a <code>KEY:</code> line, the cache key. "Look inside the cache file" shows the stored response headers. "Origin counters" is nginx's <code>stub_status</code> on the origin: <code>requests</code> grows only on a miss. Now break it. Click "Wait 11 s, then request": the copy is stale, so the edge checks with the origin and shows <code>REVALIDATED</code> (chapter 6). "Purge" deletes the cache files, and the next request is MISS. Times are on your machine and will vary.</p>
+ <template class="setup">cdn-setup
+req() { curl -s -o /dev/null -w "%{http_code}  X-Cache: %header{x-cache}  X-Edge-Connect: %header{x-edge-connect}  total %{time_total}s\n" "$@"; }</template>
+ <template data-label="Request logo.svg">req cdn-edge/static/logo.svg</template>
+ <template data-label="Show cache files">for f in $(find /edge-cache -type f); do echo "$f"; grep -a '^KEY' "$f"; done</template>
+ <template data-label="Look inside the cache file">f=$(grep -rla 'KEY: http://cdn-edge/static/logo.svg' /edge-cache | head -1); sed -n '/^KEY/,/^\r\{0,1\}$/p' "$f" | tr -d '\r'</template>
+ <template data-label="Origin counters">curl -s cdn-origin/status</template>
+ <template data-label="Wait 11 s, then request">sleep 11; req cdn-edge/static/logo.svg</template>
+ <template data-label="Purge (delete cache files)">rm -rf /edge-cache/* &amp;&amp; echo "edge cache emptied"</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c4" data-title="What may be cached: GET, POST and Cache-Control">
+<h2>4. What may be cached: GET, POST and Cache-Control</h2>
+<div class="topics">Covers: notes 2, 6 · Sources: RFC 9110 §9.2.1, §9.3.3; RFC 9111 §3, §5.2.2, §7; nginx docs (proxy_cache_methods, proxy_cache_valid, proxy_ignore_headers)</div>
+<p class="lead">A CDN may only reuse a response when the HTTP rules say it is safe for other users. In practice that means responses to GET and HEAD requests, which the origin marks as cacheable. Everything else goes to the origin every time.</p>
+<h3>Methods</h3>
+<p>GET and HEAD are <b>safe</b> methods (RFC 9110 §9.2.1): they read and do not change anything. One answer can serve many users. POST changes something, such as placing an order. Each POST must reach the origin. RFC 9110 §9.3.3 allows caching a POST response only with explicit freshness and a <code>Content-Location</code> equal to the request URI, and says "the overwhelming majority of cache implementations only support GET and HEAD." nginx caches GET and HEAD by default (<code>proxy_cache_methods GET HEAD</code>). So a CDN acts as a plain proxy for POST: it passes the request on, over its pooled origin connections.</p>
+<h3>Cache-Control from the origin</h3>
+<table>
+<tr><th>Directive</th><th>Meaning for a shared cache such as a CDN (RFC 9111 §5.2.2)</th></tr>
+<tr><td><code>max-age=N</code></td><td>Fresh for N seconds.</td></tr>
+<tr><td><code>s-maxage=N</code></td><td>Fresh for N seconds in shared caches only. Overrides max-age there. Lets the CDN keep a copy longer than browsers.</td></tr>
+<tr><td><code>public</code></td><td>May be stored even where it would otherwise not be, for example with an Authorization header.</td></tr>
+<tr><td><code>private</code></td><td>For one user. "A shared cache MUST NOT store the response." The browser may.</td></tr>
+<tr><td><code>no-store</code></td><td>No cache may store any part of it.</td></tr>
+<tr><td><code>no-cache</code></td><td>May be stored, but must be checked with the origin before every reuse.</td></tr>
+<tr><td><code>must-revalidate</code></td><td>Once stale, never reuse without a successful check. If the origin is down, return an error (504).</td></tr>
+</table>
+<p>Two more rules matter. A request with an <code>Authorization</code> header may only be stored by a shared cache if the response has <code>public</code>, <code>s-maxage</code> or <code>must-revalidate</code> (RFC 9111 §3). And <code>Set-Cookie</code>: RFC 9111 §7 says it "does not inhibit caching", but nginx does not cache a response that has it. Many CDNs are strict in the same way, because a cookie usually means a per-user response.</p>
+<p>The common failure is a CDN rule that overrides the origin, such as "cache everything for 60 s". If it hits a logged-in page, the edge stores one user's page and shows it to everyone with the same cache key.</p>
+
+<div class="lab" id="w-dec">
+ <div class="t">Lab: will the edge store this response?</div>
+ <p class="hint">Set the request and the response, and read the trace: each line is one rule, in the order a cache checks them, with the RFC section. The last line is the result. Try the presets. "Break it": a logged-in account page with an edge rule that ignores Cache-Control. The trace shows the page stored, and the next user gets it.</p>
+ <div class="bar"><button data-p="static">Static file</button><button data-p="post">POST /orders</button><button data-p="acct">Account page</button><button data-p="auth">API with token, s-maxage</button><button data-p="nc">no-cache</button><button class="dan" data-p="leak">Break it: cache everything rule</button></div>
+ <div class="bar">
+  <label>Method <select id="dc-m"><option>GET</option><option>HEAD</option><option>POST</option></select></label>
+  <label>Cache-Control <select id="dc-cc"><option value="">(none)</option><option>public, max-age=3600</option><option>max-age=60</option><option>s-maxage=600, max-age=0</option><option>private, max-age=60</option><option>no-store</option><option>no-cache</option></select></label>
+ </div>
+ <div class="bar">
+  <label><input type="checkbox" id="dc-auth"> Request has Authorization</label>
+  <label><input type="checkbox" id="dc-cookie"> Response has Set-Cookie</label>
+  <label><input type="checkbox" id="dc-lm" checked> Response has Last-Modified (10 days ago)</label>
+  <label><input type="checkbox" id="dc-all"> Edge rule: cache everything for 60 s</label>
+ </div>
+ <div class="trace" id="dc-out"></div>
+</div>
+
+<div class="lab term" data-tool="cdn" id="dc-real">
+ <div class="t">Lab: GET, POST and private pages on the real edge</div>
+ <p class="hint">The same edge and origin as chapter 3. <code>req</code> now also prints the body and <code>origin conn</code>: the origin's number for the connection that carried the request (nginx <code>$connection</code>), so you can see each request that reached the origin. No <code>X-Cache</code> value means nginx did not use the cache at all for that request.</p>
+ <p class="hint">Click "POST twice": both reach the origin, and X-Cache is empty, since nginx caches only GET and HEAD. "GET a no-store API twice": MISS both times, as <code>no-store</code> forbids storing. "Account page as ana, then bo": the origin sends <code>private, no-store</code>, so each user gets their own page. Now break it. "Cache everything rule" sends the same two requests to <code>/everything/</code>, where the edge has <code>proxy_ignore_headers Cache-Control Expires Set-Cookie</code> and <code>proxy_cache_valid 200 60s</code>. Bo gets "Account page of ana" with HIT. The rule leaks ana's page for 60 s. Run it again within 60 s and both get ana's page.</p>
+ <template class="setup">cdn-setup
+req() { curl -s -w "  &lt;- %{http_code}  X-Cache: %header{x-cache}  origin conn: %header{x-origin-conn}\n" "$@"; }</template>
+ <template data-label="POST twice">req -X POST cdn-edge/api/orders
+req -X POST cdn-edge/api/orders</template>
+ <template data-label="GET a no-store API twice">req cdn-edge/api/orders
+req cdn-edge/api/orders</template>
+ <template data-label="Account page as ana, then bo">req -b user=ana cdn-edge/account
+req -b user=bo cdn-edge/account</template>
+ <template data-label="Break it: cache everything rule">req -b user=ana cdn-edge/everything/account
+req -b user=bo cdn-edge/everything/account</template>
+ <template data-label="Show the origin's headers">curl -s -D - -o /dev/null -b user=ana cdn-origin/account | tr -d '\r' | grep -iE '^(HTTP|cache-control|set-cookie)'</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c5" data-title="The cache key and Vary">
+<h2>5. The cache key and Vary</h2>
+<div class="topics">Covers: notes 1, 2 · Sources: RFC 9111 §2, §4.1 (Vary); nginx docs (proxy_cache_key, Vary handling in proxy_cache_valid)</div>
+<p class="lead">The cache key decides which requests share one stored copy. Two requests with the same key get the same response. If the key is too short, users get each other's content. If it is too long, every request is a miss.</p>
+<p>When the origin sends different content for the same URL, for example by language, it must say so with <code>Vary</code>. <code>Vary: Accept-Language</code> tells the cache that the <code>Accept-Language</code> request header is part of the key. RFC 9111 §4.1: a cache must not reuse a stored response "unless all the presented request header fields nominated by that Vary field value match". nginx does not cache a response with <code>Vary: *</code>.</p>
+<p>The query string is part of the key by default. <code>?utm_source=mail</code> and <code>?utm_source=ad</code> are two keys for the same file. CDNs let you drop or sort query parameters in the key for this reason. It also gives attackers a way past the cache (chapter 12): each random query string is a new key, so each request is a miss.</p>
+<div class="lab term" data-tool="cdn" id="key-real">
+ <div class="t">Lab: Vary and the query string on the real edge</div>
+ <p class="hint">The edge's key here is <code>$scheme://$host$request_uri</code>: scheme, host, path and query string. Two origin pages answer by <code>Accept-Language</code>: <code>/hello-vary</code> sends <code>Vary: Accept-Language</code>, <code>/hello-novary</code> does not. Both have <code>max-age=60</code>.</p>
+ <p class="hint">Click "German, French, German on /hello-vary". The edge stores one copy per language: MISS, MISS, then HIT with the right word. Now break it. "German, then French on /hello-novary": the French user gets "Hallo" with HIT, because without Vary both share one key. "Query strings" shows <code>?a=1</code>, <code>?a=2</code>, <code>?a=1</code>: MISS, MISS, HIT. "Show keys" lists the KEY line of every cache file. The two Vary copies are two files with the same KEY line, one per Accept-Language value. Run setup again ("Reconnect all") to empty the cache.</p>
+ <template class="setup">cdn-setup
+req() { curl -s -w "  &lt;- %{http_code}  X-Cache: %header{x-cache}\n" "$@"; }</template>
+ <template data-label="German, French, German on /hello-vary">req -H 'Accept-Language: de' cdn-edge/hello-vary
+req -H 'Accept-Language: fr' cdn-edge/hello-vary
+req -H 'Accept-Language: de' cdn-edge/hello-vary</template>
+ <template data-label="Break it: German, then French on /hello-novary">req -H 'Accept-Language: de' cdn-edge/hello-novary
+req -H 'Accept-Language: fr' cdn-edge/hello-novary</template>
+ <template data-label="Query strings">for q in 1 2 1; do echo -n "?a=$q  "; req -o /dev/null "cdn-edge/static/logo.svg?a=$q"; done</template>
+ <template data-label="Show keys">grep -rah '^KEY' /edge-cache | sort | uniq -c</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c6" data-title="Freshness, revalidation and stale copies">
+<h2>6. Freshness, revalidation and stale copies</h2>
+<div class="topics">Covers: notes 1, 5 · Sources: RFC 9111 §4.2 (freshness, heuristic), §4.3 (validation), §5.1 (Age); RFC 9110 §8.8.3 (ETag), §13.1.2 (If-None-Match), §15.4.5 (304); RFC 5861 (stale-while-revalidate, stale-if-error); nginx docs (proxy_cache_revalidate, proxy_cache_use_stale)</div>
+<p class="lead">A stored copy is <b>fresh</b> while its age is under its lifetime. After that it is <b>stale</b>. The edge does not throw a stale copy away. It asks the origin "has this changed?" with a small request. That check is <b>revalidation</b>.</p>
+<h3>How the check works</h3>
+<p>With the first response, the origin sent a <b>validator</b>: an <code>ETag</code> (a tag for this version of the content) and often <code>Last-Modified</code>. To revalidate, the edge sends the same GET with <code>If-None-Match: "the-etag"</code>. If the content did not change, the origin answers <code>304 Not Modified</code> with no body, and the edge marks its copy fresh again. If it changed, the origin sends <code>200</code> with the new content. A 304 saves the bytes, but it still costs one round trip to the origin.</p>
+<p>The age of a copy is sent to users in the <code>Age</code> header (RFC 9111 §5.1), so a browser can tell that a response came from a cache. If the origin sends no lifetime at all, a cache may guess one. RFC 9111 §4.2.2 gives 10% of the time since Last-Modified as "a typical setting". It is an example, not a rule.</p>
+<h3>Serving stale copies on purpose</h3>
+<p>RFC 5861 adds two Cache-Control extensions. <code>stale-while-revalidate=N</code>: for N seconds after the copy goes stale, the cache may serve it at once and revalidate in the background, so no user waits for the origin. <code>stale-if-error=N</code>: if the origin fails (500, 502, 503, 504 or no answer), the cache may serve the stale copy for N seconds instead of an error. This is how a CDN keeps a site up while the origin is down. <code>must-revalidate</code> turns this off: a stale copy must never be served without a check.</p>
+<p>The cost of a long lifetime is old content after a change. If you deploy a new <code>app.js</code>, edges keep the old one until it expires. Two fixes: <b>purge</b> (tell the CDN to drop the copy) or <b>versioned names</b> (<code>app.3f9a1c.js</code>, a new name for each version, cached for a year).</p>
+
+<div class="lab" id="w-fresh">
+ <div class="t">Lab: one stored copy over time</div>
+ <p class="hint">The origin sent <code>Cache-Control: max-age=60, stale-while-revalidate=30, stale-if-error=300</code> (example values). The bar shows the copy's life: green fresh, yellow stale-while-revalidate window, grey stale. Move the time slider to the moment a user asks, set the origin's state, and read what the edge does. "Break it": turn on must-revalidate with the origin down, past 60 s. The user gets 504, not the copy.</p>
+ <div class="bar"><label>Request at t = <input type="range" id="fr-t" min="0" max="420" value="30"> <b id="fr-tv"></b></label></div>
+ <div class="bar"><label><input type="checkbox" id="fr-chg"> Content changed on the origin</label><label><input type="checkbox" id="fr-down"> Origin is down</label><label><input type="checkbox" id="fr-mr"> must-revalidate</label>
+ <button class="dan" id="fr-break">Break it</button></div>
+ <div class="tl" id="fr-tl"></div>
+ <div class="trace" id="fr-out"></div>
+</div>
+
+<div class="lab term" data-tool="cdn" id="fr-real">
+ <div class="t">Lab: revalidate, update and serve stale on the real edge</div>
+ <p class="hint">The edge runs <code>proxy_cache_revalidate on</code> (revalidate with If-None-Match) and <code>proxy_cache_use_stale error timeout updating http_502 http_503 http_504</code> (serve a stale copy if the origin fails). <code>app.js</code> has a 10 s lifetime. nginx makes the ETag from the file's change time and size. <code>/origin-www</code> is the origin's file folder, so you can change a file as a deploy would.</p>
+ <p class="hint">Click "Request app.js": MISS, then HIT. Click "Deploy v2" and request again within 10 s: still v1, with HIT. The edge does not know. Click "Wait 11 s, then request": <code>EXPIRED</code> with v2. The edge revalidated, the ETag did not match, so the origin sent the new file. Click it again with no change: <code>REVALIDATED</code>, the origin answered 304. Now break it. Click "Cut the origin off" (Toxiproxy refuses connections), then "Wait 11 s, then request": <code>STALE</code>, the edge serves its old copy instead of an error. "Turn the origin back on" ends the fault.</p>
+ <template class="setup">cdn-setup
+req() { curl -s -w "  &lt;- %{http_code}  X-Cache: %header{x-cache}  ETag: %header{etag}\n" "$@"; }</template>
+ <template data-label="Request app.js">req cdn-edge/static/app.js</template>
+ <template data-label="Deploy v2">echo 'console.log("app v2, new checkout")' &gt; /origin-www/static/app.js &amp;&amp; echo "origin now has v2"</template>
+ <template data-label="Wait 11 s, then request">sleep 11; req cdn-edge/static/app.js</template>
+ <template data-label="Break it: cut the origin off">curl -s -o /dev/null -X POST toxiproxy:8474/proxies/cdn-origin -d '{"enabled":false}' &amp;&amp; echo "origin unreachable"</template>
+ <template data-label="Turn the origin back on">curl -s -o /dev/null -X POST toxiproxy:8474/proxies/cdn-origin -d '{"enabled":true}' &amp;&amp; echo "origin reachable"</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c7" data-title="Many misses at once: coalescing and tiered cache">
+<h2>7. Many misses at once: coalescing and tiered cache</h2>
+<div class="topics">Covers: notes 5, 9 · Sources: nginx docs (proxy_cache_lock, proxy_cache_lock_timeout); AWS CloudFront docs (request collapsing, Origin Shield); Fastly docs (request collapsing, shielding); Cloudflare docs (Tiered Cache)</div>
+<p class="lead">When a popular file is not in the cache, thousands of users can ask for it in the same second. Without help, each of those misses goes to the origin. CDNs prevent this in two places: <b>request coalescing</b> inside one edge location, and a <b>tiered cache</b> between edge locations.</p>
+<h3>Request coalescing</h3>
+<p>The first miss for a key goes to the origin. The edge marks the key as "being fetched". Other requests for the same key wait on that mark. When the response arrives, the edge stores it and answers all the waiting requests from it. nginx calls this <code>proxy_cache_lock</code>: "only one request at a time will be allowed to populate a new cache element". CloudFront calls it request collapsing, and logs the first request as "Miss" and the others as "Hit". It works only for requests with the same cache key.</p>
+<p>It has a failure mode. If the response turns out to be not cacheable (private, no-store), the waiting requests cannot use it. Fastly: "each of the queued requests must then be sent to the backend independently". The waiting made them slower, not faster. nginx has a limit for the wait, <code>proxy_cache_lock_timeout</code> (default 5 s); after it, the request goes to the origin and the response is not cached.</p>
+<h3>Tiered cache (origin shield)</h3>
+<p>Coalescing works inside one edge location. With 300 locations, a new file can still cause 300 misses at the origin. A tiered cache puts one more cache layer in front of the origin: lower-tier locations ask an upper-tier location, and only the upper tier asks the origin. Cloudflare: "If the upper-tier does not have the content, only the upper-tier can ask the origin for content." AWS Origin Shield: requests are "consolidated with other requests for the same object, resulting in as few as one request going to your origin." The cost is one more hop on a miss.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="row" data-s="1"><div class="n edge">Edge Frankfurt</div><div class="n edge">Edge Paris</div><div class="n edge">Edge Madrid</div><div class="n edge">Edge Warsaw</div></div>
+  <div class="ar" data-s="1">↓ ↓ ↓ ↓ <small>each location misses and asks the origin</small></div>
+  <div class="n svc" data-s="1">Origin</div>
+  <div class="n data" data-s="2">Inside each edge: 1 request fetches, the rest wait on the lock</div>
+  <div class="n edge" data-s="3">Upper tier (shield) near the origin<small>lower tiers ask it, not the origin</small></div>
+  <div class="ar" data-s="4">↓ <small>one request</small></div>
+  <div class="n svc" data-s="4">Origin sees 1 request for the new file</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">A new file. Every edge location gets a miss at once, and each sends its own requests to the origin.</p>
+  <p class="cap" data-s="2">Coalescing in each edge: one request per key goes out, the others wait for its answer. The origin now sees one request per edge location.</p>
+  <p class="cap" data-s="3">A tiered cache: lower-tier locations send their misses to one upper-tier location, which coalesces them again.</p>
+  <p class="cap" data-s="4">The origin sees one request. Every other user is served from a cache.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="w-coal">
+ <div class="t">Lab: a new file, 6 edge locations, 40 users each</div>
+ <p class="hint">240 users ask for a file that no cache has, at the same moment. Each row is one edge location. Its cells are the users: yellow waited on the lock and got the stored copy, purple sent to the upper tier, red sent to the origin. Switch coalescing and the tiered cache on and off and press Release. Watch the origin count. "Break it": the response is <code>private</code>. Coalescing makes users wait, then sends them all to the origin anyway.</p>
+ <div class="bar"><label><input type="checkbox" id="co-lock" checked> Coalescing at each edge</label><label><input type="checkbox" id="co-tier"> Tiered cache (upper tier coalesces too)</label><label><input type="checkbox" id="co-priv"> Break it: response is private</label><button class="pri" id="co-go">Release the file</button></div>
+ <div id="co-rows"></div>
+ <div id="co-stats"></div>
+</div>
+
+<div class="lab term" data-tool="cdn" id="co-real">
+ <div class="t">Lab: 20 misses at once on the real edge</div>
+ <p class="hint">Here the edge reaches the origin through a slower Toxiproxy port: 500 ms each way, so a miss takes about 2 s (TLS handshake plus the request). That leaves time for 20 requests to arrive during one miss. <code>/slow/</code> has <code>proxy_cache_lock on</code>, <code>/slow-nolock/</code> has it off. Each click uses a new query string, so the key is new and every request starts as a miss. The last line counts requests that reached the origin (from its <code>stub_status</code>).</p>
+ <p class="hint">Click "20 at once, lock on": 1 MISS and 19 HIT, origin got 1. The 19 waited for the first. Now break it. "20 at once, lock off": 20 MISS, origin got 20. "Same key again" repeats the last key: all HIT, origin got 0. Times are on your machine and will vary.</p>
+ <template class="setup">cdn-setup
+origin_requests() { curl -s cdn-origin/status | awk 'NR==3 {print $3}'; }
+burst() { k=$RANDOM; before=$(origin_requests)
+  seq 20 | xargs -P 20 -I{} curl -s -o /dev/null -w "%header{x-cache}\n" "cdn-edge/$1/static/app.js?k=$k" | sort | uniq -c
+  echo "origin got $(( $(origin_requests) - before - 1 )) requests"; last="$1/static/app.js?k=$k"; }</template>
+ <template data-label="20 at once, lock on">burst slow</template>
+ <template data-label="Break it: 20 at once, lock off">burst slow-nolock</template>
+ <template data-label="Same key again">before=$(origin_requests)
+seq 20 | xargs -P 20 -I{} curl -s -o /dev/null -w "%header{x-cache}\n" "cdn-edge/$last" | sort | uniq -c
+echo "origin got $(( $(origin_requests) - before - 1 )) requests"</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c8" data-title="Why a new connection is slow">
+<h2>8. Why a new connection is slow</h2>
+<div class="topics">Covers: note 7 · Sources: RFC 9293 (TCP three-way handshake); RFC 8446 §2.3, §8 (TLS 1.3, 0-RTT and replay); Cloudflare blog "RFC 8446 aka TLS 1.3" (round trip counts); RFC 5681 §3.1 (slow start); RFC 6928 (initial window of 10 segments); RFC 8470 (425 Too Early); RFC 9000 (QUIC); Cloudflare docs (SSL/TLS modes)</div>
+<p class="lead">Before any request goes on a new connection, two handshakes must finish. TCP needs one round trip (SYN, SYN-ACK, ACK). TLS 1.3 needs one more, TLS 1.2 two more. After that, TCP still sends slowly at first and speeds up over several round trips. A reused connection skips all of this.</p>
+<h3>Handshakes</h3>
+<p><b>TCP</b>: the client sends SYN, the server answers SYN-ACK, the client sends ACK. The client can send data with its ACK, so the cost is one RTT. <b>TLS 1.3</b>: the client's first message already holds its key share, so the server can answer with its certificate and finish in one RTT. The Cloudflare TLS 1.3 post: latency can "drop from two round-trips to only one round-trip". <b>TLS 1.2</b> needs two. <b>QUIC</b> (HTTP/3) runs over UDP and does the transport and TLS 1.3 handshake together, in one RTT.</p>
+<p><b>0-RTT</b>: a client that connected before can send its request in the first flight, with no wait. RFC 8446 §2.3: this data "is not forward secret" and "There are no guarantees of non-replay between connections." An attacker who copies the packet can send it again. So only safe requests such as GET should use 0-RTT. A server can refuse early data with status 425 Too Early (RFC 8470).</p>
+<h3>Slow start</h3>
+<p>A new TCP connection does not know the path's capacity. It starts with a small <b>congestion window</b> (how much unacknowledged data it may have in flight) and grows it as acknowledgements come back (RFC 5681 §3.1). RFC 6928 raised the start to 10 segments, about 14.6 KB. So a 100 KB response on a new connection needs about 3 round trips of data (14.6, then 29.2, then 58.4 KB). A warm connection that has already grown its window sends it in one.</p>
+<h3>Two connections, not one</h3>
+<p>The user's TLS connection ends at the edge. The edge reads the request, then sends it to the origin on a second, separate connection. That is why the edge can cache and filter. It also means the CDN sees the plain request. The edge-to-origin leg needs its own TLS: Cloudflare's "Flexible" mode sends it unencrypted, "Full (strict)" encrypts it and checks the origin's certificate. Cloudflare recommends Full or Full (strict).</p>
+<p>The split helps speed too. The user's handshakes happen over the short distance to the edge. Only the edge-to-origin leg is long, and the edge can keep that one open.</p>
+
+<div class="lab" id="w-hs">
+ <div class="t">Lab: step through a new connection, packet by packet</div>
+ <p class="hint">Each line is one flight of packets between the edge and the origin. Pick a protocol and the RTT, then press "Next flight" and watch the clock. The last flights send a 100 KB response with slow start: each round sends twice as much as the one before. Compare with "Reused connection". "Break it": 0-RTT with a POST. The request goes in the first flight, and an attacker can replay it.</p>
+ <div class="bar"><label>Protocol <select id="hs-p"><option value="t13">TCP + TLS 1.3</option><option value="t12">TCP + TLS 1.2</option><option value="quic">QUIC (HTTP/3)</option><option value="z">TLS 1.3 0-RTT (resumed), GET</option><option value="zpost">Break it: TLS 1.3 0-RTT, POST</option><option value="warm">Reused connection</option></select></label>
+ <label>RTT <input type="range" id="hs-rtt" min="10" max="250" value="80"> <b id="hs-rv"></b></label>
+ <button class="pri" id="hs-next">Next flight</button><button id="hs-all">All flights</button><button id="hs-reset">Restart</button></div>
+ <div class="ladder" id="hs-out"></div>
+ <div id="hs-stats"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c9" data-title="Connection pools to the origin">
+<h2>9. Connection pools to the origin</h2>
+<div class="topics">Covers: notes 7, 8 · Sources: nginx docs (upstream keepalive, keepalive_timeout, keepalive_requests, $upstream_connect_time, stub_status, CHANGES 1.29.7); RFC 9112 §9.3 (persistent connections); RFC 9110 §9.2.2 (retrying requests); AWS CloudFront docs (origin keep-alive timeout); Cloudflare blog "How we built Pingora" (2022)</div>
+<p class="lead">A connection pool is a set of open, already-handshaken connections from the edge to the origin. When a request must go to the origin, the edge takes an idle connection from the pool, sends the request, and puts the connection back when the response is done. Only when no idle connection exists does it open a new one.</p>
+<p>HTTP/1.1 keeps connections open by default (RFC 9112 §9.3: "persistent connections"). The pool uses this. The state the edge keeps for each origin is a list of connections, each <b>busy</b> (carrying a request) or <b>idle</b> (open, waiting), with the time it went idle.</p>
+<h3>The rules a pool follows</h3>
+<ul>
+<li><b>Take idle first.</b> A request takes an idle connection if one exists. No handshake, no slow start.</li>
+<li><b>Open when none is idle.</b> If all are busy, the edge opens a new one and pays TCP and TLS. In nginx, <code>keepalive N</code> is how many <i>idle</i> connections each worker keeps. nginx docs: it "does not limit the total number of connections to upstream servers". Concurrency decides how many are open; N decides how many stay after a burst.</li>
+<li><b>Close extras.</b> When a request finishes and N idle connections already wait, the least recently used is closed.</li>
+<li><b>Close after idle time.</b> nginx <code>keepalive_timeout</code> (default 60 s) closes a connection that stays idle that long. CloudFront's origin keep-alive timeout is 5 s by default, up to 300 s by quota.</li>
+<li><b>Close after many requests.</b> nginx <code>keepalive_requests</code> (default 1000) closes a connection after that many requests, so memory is freed and load spreads.</li>
+</ul>
+<p>Since nginx 1.29.7 (March 2026), upstream keepalive is on by default with 32 idle connections per worker. Before, it was off and every proxied request opened a new connection unless you configured it.</p>
+<h3>Each worker has its own pool</h3>
+<p>In nginx each worker process has its own pool. With many workers and many edge servers, a request often lands where no idle connection exists. Cloudflare wrote that its old nginx-based proxy pooled "per worker", and that Pingora, which shares one pool across threads, raised one customer's connection reuse from 87.1% to 99.92% and "reduced new connections to their origins by 160x" (2022 blog, numbers for one customer).</p>
+<h3>The idle close race</h3>
+<p>Both ends may close an idle connection. If the origin closes it at the same moment the edge sends a request on it, the request fails with a reset or an empty reply. The edge can send a GET again on a new connection, since GET is idempotent. It must not do that for a POST. RFC 9110 §9.2.2: "A proxy MUST NOT automatically retry non-idempotent requests." The fix is to make the edge close first: set the edge's idle timeout shorter than the origin's. With CloudFront's 5 s default, an origin that keeps idle connections for 60 s is safe. An origin with a 2 s timeout is not.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n edge" data-s="1">Edge worker</div>
+  <div class="ar" data-s="2">↓ <small>request 1: no idle connection, so open one (TCP + TLS)</small></div>
+  <div class="row" data-s="2"><div class="n svc">conn A: busy</div></div>
+  <div class="row" data-s="3"><div class="n plat">conn A: idle 0 s</div></div>
+  <div class="row" data-s="4"><div class="n svc">conn A: busy (request 2, reused)</div><div class="n svc">conn B: busy (request 3, new)</div></div>
+  <div class="row" data-s="5"><div class="n plat">conn A: idle</div><div class="n plat">conn B: idle</div><div class="n bad">conn C: closed (more than N idle)</div></div>
+  <div class="row" data-s="6"><div class="n bad">conn A: closed after keepalive_timeout</div></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">One edge worker and its pool for one origin. The pool starts empty.</p>
+  <p class="cap" data-s="2">The first request finds no idle connection. The edge opens one and pays the TCP and TLS round trips to the origin.</p>
+  <p class="cap" data-s="3">The response is done. The connection goes back to the pool as idle, with the time it went idle.</p>
+  <p class="cap" data-s="4">Two requests at once: one takes conn A with no handshake. The other finds no idle connection and opens conn B.</p>
+  <p class="cap" data-s="5">After a burst, more connections are idle than the limit N. The extras are closed, oldest first.</p>
+  <p class="cap" data-s="6">A connection idle longer than the timeout is closed. The next request after a quiet period pays the handshakes again.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="w-pool">
+ <div class="t">Lab: an edge worker's pool for one origin</div>
+ <p class="hint">Each box is one connection to the origin: dashed blue idle (with idle seconds), green busy, red closed. A dashed red border is a connection the origin closed while the edge still thinks it is idle. A request takes 1 RTT on a reused connection, 3 RTT on a new one (TCP, TLS 1.3, request). The RTT is 80 ms (example). Send one request, then a burst, then let time pass. Watch new versus reused and the time spent on handshakes. Set N to 0 to see no pool at all. "Break it": the origin closes idle connections after 5 s, the edge keeps them 30 s. After "Wait 10 s", the edge sends on a connection the origin already closed. A GET is sent again on a new connection. A POST fails with 502.</p>
+ <div class="bar"><label>Idle connections kept (N) <input type="range" id="pl-n" min="0" max="8" value="4"> <b id="pl-nv"></b></label>
+ <label>Edge idle timeout <select id="pl-et"><option value="30">30 s</option><option value="60">60 s</option></select></label>
+ <label>Origin idle timeout <select id="pl-ot"><option value="300">300 s</option><option value="60">60 s</option><option value="5">5 s</option></select></label>
+ <label>Method <select id="pl-m"><option>GET</option><option>POST</option></select></label></div>
+ <div class="bar"><button class="pri" id="pl-1">1 request</button><button id="pl-b">Burst of 8 at once</button><button id="pl-w">Wait 10 s</button><button class="dan" id="pl-break">Break it</button><button id="pl-reset">Reset</button></div>
+ <div class="slots" id="pl-slots"></div>
+ <div id="pl-stats"></div>
+ <div class="log" id="pl-log" style="height:130px"></div>
+</div>
+
+<div class="lab term" data-tool="cdn" id="pl-real">
+ <div class="t">Lab: a real pool, seen from the origin</div>
+ <p class="hint">The edge has two paths to the same origin. <code>/api/</code> goes through a pool with <code>keepalive 4</code> and <code>keepalive_timeout 30s</code>. <code>/nopool/api/</code> uses <code>keepalive 0</code>: a new TCP and TLS connection for every request. The origin adds <code>X-Origin-Conn</code> (its serial number for the connection, nginx <code>$connection</code>) and <code>X-Origin-Conn-Req</code> (how many requests that connection has carried, <code>$connection_requests</code>). The edge adds <code>X-Edge-Connect</code>: seconds to open the origin connection, TLS included. <code>0.000</code> means a pooled connection was reused. The origin is 80 ms away. These paths are not cached, so every request reaches the origin.</p>
+ <p class="hint">Click "3 requests, no pool": three connection numbers, connect about 0.08 s each, total about 0.17 s each. Click "3 requests, pool": one connection number, request count 1, 2, 3, connect 0.000 after the first, about 0.085 s each. Half the time. "20 at once" sends 20 requests in parallel. Each connection carries one request at a time, so the edge opens many more than 4 (about 10 to 20, as some requests finish before others start). Click "20 at once" again: only about 4 come from the pool (connect 0.000), since the edge kept only 4 idle. "Origin counters": <code>accepts</code> is connections, <code>requests</code> is requests. With the pool, requests grow faster than accepts. Break it: "Wait 31 s, then 1 request": the pooled connections were closed after 30 s idle, so it pays the handshake again. Times are on your machine and will vary.</p>
+ <template class="setup">cdn-setup
+req() { curl -s -o /dev/null -w "conn %header{x-origin-conn}  request #%header{x-origin-conn-req} on it  connect %header{x-edge-connect}  total %{time_total}s\n" "$@"; }
+many() { seq 20 | xargs -P 20 -I{} curl -s -o /dev/null -w "%header{x-origin-conn} %header{x-edge-connect}\n" "cdn-edge/$1" | awk '{c[$1]++; if ($2 &gt; 0) n++} END {print length(c) " origin connections used, " n+0 " of 20 requests opened a new one"}'; }</template>
+ <template data-label="3 requests, no pool">for i in 1 2 3; do req cdn-edge/nopool/api/items; done</template>
+ <template data-label="3 requests, pool">for i in 1 2 3; do req cdn-edge/api/items; done</template>
+ <template data-label="20 at once">many api/items</template>
+ <template data-label="Origin counters">curl -s cdn-origin/status</template>
+ <template data-label="Break it: wait 31 s, then 1 request">sleep 31; req cdn-edge/api/items</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c10" data-title="Multiplexing: many requests, few connections">
+<h2>10. Multiplexing: many requests, few connections</h2>
+<div class="topics">Covers: note 9 · Sources: RFC 9112 §9.3.2 (pipelining); RFC 9113 §1, §5, §6.5.2 (HTTP/2 streams, SETTINGS_MAX_CONCURRENT_STREAMS); RFC 9114 §1 and RFC 9000 §13 (HTTP/3, QUIC loss recovery); Cloudflare docs (HTTP/2 to origin, page updated 2026-08-14); AWS CloudFront docs (requests to custom origins); nginx docs (proxy_http_version) and lab measurement</div>
+<p class="lead">The edge turns many user connections into few origin connections in two ways. <b>Reuse over time</b>: one HTTP/1.1 connection carries one request at a time, but thousands one after another. <b>Multiplexing</b>: one HTTP/2 or HTTP/3 connection carries many requests at the same time, each as its own <b>stream</b>.</p>
+<h3>Why the edge needs few origin connections at all</h3>
+<p>Users hold many connections that are idle most of the time, between page loads or while reading. Most of their requests are hits, which need no origin connection. Only misses and uncacheable requests (POST, private pages) go to the origin, and each needs a connection only while it is in flight. So the number of origin connections follows the number of requests in flight to the origin at one moment, not the number of users.</p>
+<h3>HTTP/1.1: one request per connection at a time</h3>
+<p>On HTTP/1.1, a connection carries a request, waits for the whole response, then carries the next. Pipelining (sending more requests before the answers) exists, but responses must come back in order (RFC 9112 §9.3.2), so one slow response blocks the ones behind it. RFC 9113 §1: so "HTTP/1.0 and HTTP/1.1 clients use multiple connections". For an edge, N requests in flight to the origin means N connections. CloudFront "forwards requests to your custom origin using HTTP/1.1."</p>
+<h3>HTTP/2: streams on one connection</h3>
+<p>HTTP/2 cuts each request and response into frames. Each frame carries a stream ID. RFC 9113 §5: "A single HTTP/2 connection can contain multiple concurrently open streams, with either endpoint interleaving frames from multiple streams." The receiver puts frames back together by stream ID. So 100 requests can be in flight on one connection, and a slow response does not block the others. The server limits how many with <code>SETTINGS_MAX_CONCURRENT_STREAMS</code>; RFC 9113 recommends at least 100. Cloudflare: "HTTP/2 connection to the origin is enabled by default", "multiple HTTP/2 streams share a single long-lived TCP connection", and "If the stream limit has been reached, Cloudflare opens a new TCP connection".</p>
+<p>Not every proxy that speaks HTTP/2 to the origin multiplexes. nginx added <code>proxy_http_version 2</code> in 1.29.4. The real lab below shows that nginx 1.31.6 still sends one request at a time on each upstream HTTP/2 connection.</p>
+<h3>HTTP/3: streams without TCP's queue</h3>
+<p>HTTP/2 runs on one TCP connection, and TCP delivers bytes in order. If one packet is lost, every stream waits for its resend, even streams whose data arrived. RFC 9113 §1: "TCP head-of-line blocking is not addressed by this protocol." HTTP/3 runs on QUIC, which recovers loss per stream. RFC 9000 §13: "only streams with data in that packet are blocked waiting for a retransmission".</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="row" data-s="1"><div class="n client">user 1</div><div class="n client">user 2</div><div class="n client">user 3</div><div class="n client">… user 1000</div></div>
+  <div class="ar" data-s="1">↓ 1000 connections, mostly idle</div>
+  <div class="n edge" data-s="1">Edge</div>
+  <div class="n data" data-s="2">Cache answers the hits: no origin connection needed</div>
+  <div class="ar" data-s="3">↓ <small>HTTP/1.1: 1 request per connection at a time</small></div>
+  <div class="row" data-s="3"><div class="n svc">conn 1</div><div class="n svc">conn 2</div><div class="n svc">conn 3</div><div class="n svc">conn 4</div></div>
+  <div class="ar" data-s="4">↓ <small>HTTP/2: streams 1, 3, 5, 7 … on one connection</small></div>
+  <div class="n svc" data-s="4">1 connection, up to the stream limit in flight</div>
+  <div class="n svc" data-s="5">Origin</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">Many users, each with their own connection to the edge. At any moment most of them send nothing.</p>
+  <p class="cap" data-s="2">Most requests are hits. They never need an origin connection.</p>
+  <p class="cap" data-s="3">The misses that remain go over pooled HTTP/1.1 connections. Each carries one request at a time, so the edge needs as many connections as requests in flight.</p>
+  <p class="cap" data-s="4">With HTTP/2 to the origin, one connection carries many requests at once as streams. A new connection is needed only past the stream limit.</p>
+  <p class="cap" data-s="5">The origin sees a few long-lived connections, not one per user. Each one already passed its handshakes and slow start.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="w-mux">
+ <div class="t">Lab: 12 requests in flight to the origin</div>
+ <p class="hint">12 misses go to the origin at once. Each needs 1 RTT plus 4 packets of response. Each row is one request on a time line: blue is the request running, red is time stalled by a lost packet. The column on the right is the connection it used. The origin allows at most 4 connections from this edge (example limit). With HTTP/1.1, requests wait for a free connection. With HTTP/2, all 12 run as streams on one connection. Now break it: turn on packet loss. On HTTP/2 one lost packet stalls every stream on the connection. On HTTP/3 only the stream that lost data waits. The loss uses a fixed pattern, so runs compare fairly. Numbers are examples.</p>
+ <div class="bar"><label>Protocol <select id="mx-p"><option value="h1">HTTP/1.1 pool (max 4 connections)</option><option value="h2">HTTP/2 (1 connection, streams)</option><option value="h3">HTTP/3 (QUIC, streams)</option></select></label>
+ <label><input type="checkbox" id="mx-loss"> Break it: lose 2 packets</label><button class="pri" id="mx-go">Run</button></div>
+ <div class="wfwrap" id="mx-wf"></div>
+ <div id="mx-stats"></div>
+</div>
+
+<div class="lab term" data-tool="cdn" id="mx-real">
+ <div class="t">Lab: count connections with curl and nginx</div>
+ <p class="hint">curl's <code>%{num_connects}</code> is how many new connections a transfer opened (0 = it used one that was already open). The edge listens for both HTTP/1.1 and HTTP/2 (<code>http2 on</code>; curl uses HTTP/2 on plain HTTP with <code>--http2-prior-knowledge</code>). <code>/edge-status</code> and the origin's <code>/status</code> are nginx <code>stub_status</code>; <code>accepts</code> counts connections.</p>
+ <p class="hint">"4 files over HTTP/2": one transfer opens a connection, the other three use it as streams (num_connects 0). "4 files over HTTP/1.1, in parallel": each opens its own connection. "Fan-in: 50 users at once on a cached file": the edge accepts 50 user connections, the origin accepts 0 or 1. "Fan-in: 50 users at once on an API": not cached, so the origin needs a connection per request in flight. "50 users one after another" on the same API: the origin gets 50 requests and accepts 0 or 1 new connections, because the pool already holds idle ones. Now the break: "nginx HTTP/2 to the origin" sends 20 parallel requests through <code>/h2/</code>, which uses <code>proxy_http_version 2</code>. The origin counts 20 connections with 1 request each: nginx 1.31.6 does not multiplex upstream HTTP/2 streams. Cloudflare's docs say its proxy does.</p>
+ <template class="setup">cdn-setup
+acc() { curl -s "$1" | awk 'NR==3 {print $1}'; }
+fanin() { e=$(acc cdn-edge/edge-status); o=$(acc cdn-origin/status)
+  seq 50 | xargs -P "$2" -I{} curl -s -o /dev/null "cdn-edge/$1"
+  echo "edge accepted $(( $(acc cdn-edge/edge-status) - e - 1 )) user connections, origin accepted $(( $(acc cdn-origin/status) - o - 1 )) edge connections"; }</template>
+ <template data-label="4 files over HTTP/2">curl --http2-prior-knowledge --parallel -s -w "HTTP/%{http_version}  new connections: %{num_connects}  %{url}\n" -o /dev/null -o /dev/null -o /dev/null -o /dev/null "cdn-edge/static/app.js?lab=mux" "cdn-edge/static/logo.svg?lab=mux" cdn-edge/api/a cdn-edge/api/b</template>
+ <template data-label="4 files over HTTP/1.1, in parallel">curl --http1.1 --parallel --parallel-immediate -s -w "HTTP/%{http_version}  new connections: %{num_connects}  %{url}\n" -o /dev/null -o /dev/null -o /dev/null -o /dev/null "cdn-edge/static/app.js?lab=mux" "cdn-edge/static/logo.svg?lab=mux" cdn-edge/api/a cdn-edge/api/b</template>
+ <template data-label="Fan-in: 50 users at once on a cached file">curl -s -o /dev/null "cdn-edge/static/logo.svg?lab=fanin"
+fanin "static/logo.svg?lab=fanin" 50</template>
+ <template data-label="Fan-in: 50 users at once on an API">fanin api/x 50</template>
+ <template data-label="50 users one after another">fanin api/x 1</template>
+ <template data-label="Break it: nginx HTTP/2 to the origin">seq 20 | xargs -P 20 -I{} curl -s -o /dev/null -w "%header{x-origin-conn} %header{x-origin-conn-req}\n" cdn-edge/h2/api/x | awk '{c[$1]++} END {print length(c) " origin connections for 20 requests"}'
+curl -s -o /dev/null -w "one more: conn %header{x-origin-conn}, request #%header{x-origin-conn-req} on it\n" cdn-edge/h2/api/x</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c11" data-title="The backbone: edge to origin">
+<h2>11. The backbone: edge to origin</h2>
+<div class="topics">Covers: note 10 · Sources: Google Cloud docs (Network Service Tiers overview); Cloudflare docs (Argo Smart Routing, Tiered Cache); Cloudflare blog "Argo" (2017); Cloudflare network page (checked 2026-10-07); Mathis et al., "The Macroscopic Behavior of the TCP Congestion Avoidance Algorithm", ACM CCR 1997 (throughput model)</div>
+<p class="lead">The path from the edge to the origin is the <b>middle mile</b>. On the public internet, it crosses several networks, and each picks the next hop by its own BGP rules and costs, not by speed. A CDN with its own <b>backbone</b> (private links between its locations) carries the request most of the way on its own network, and leaves it near the origin.</p>
+<h3>Why the public path is often not the best</h3>
+<p>BGP chooses routes by policy and AS-path length. It does not measure delay or loss, and it does not move traffic away from a congested link. A request from Mumbai to Virginia may cross a busy exchange point even when a faster path exists. Loss hurts more than delay: TCP reads loss as congestion and cuts its sending rate. A rough model (Mathis et al., 1997) gives throughput of about <code>MSS / RTT × 1.22 / √loss</code>. Double the RTT and throughput halves. Raise loss from 0.01% to 1% and throughput falls 10 times.</p>
+<h3>What a CDN does on the middle mile</h3>
+<ul>
+<li><b>Enter its network early.</b> Google's Premium Tier: "incoming traffic from systems on the internet enters Google's high-performance network at the PoP closest to the sending system". Standard Tier uses "regular ISP networks".</li>
+<li><b>Pick paths by measurement.</b> Cloudflare's Argo Smart Routing "detects real-time network issues and routes your web traffic across the most efficient network path, avoiding congestion." The 2017 launch post reported "an average 35% decrease in latency" (old number, one source).</li>
+<li><b>Keep long-haul connections warm.</b> The edge near the user and the location near the origin keep connections open between them. Their congestion windows are already large, so a miss does not pay handshakes or slow start over the long distance.</li>
+<li><b>Exit near the origin.</b> The last hop from the CDN to the origin is short, often in the same city or cloud region. A tiered cache (chapter 7) puts the upper tier there too.</li>
+</ul>
+<p>Size, for scale: Cloudflare's network page lists 348 cities and says "95% of the world's Internet-connected population is within 50 milliseconds of a Cloudflare data center" (checked 2026-10-07; a Cloudflare blog from August 2026 says "330+ cities").</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n client" data-s="1">User in Mumbai</div>
+  <div class="ar" data-s="1">↓ short: handshakes end here</div>
+  <div class="n edge" data-s="1">Edge in Mumbai</div>
+  <div class="ar" data-s="2">↓ public internet: ISP A → exchange → ISP B → ISP C, chosen by BGP</div>
+  <div class="n bad" data-s="2">Busy exchange point: loss and queueing</div>
+  <div class="ar" data-s="3">↓ or: the CDN's own links, path chosen by measured delay and loss</div>
+  <div class="n plat" data-s="3">CDN backbone, warm connections between locations</div>
+  <div class="n edge" data-s="4">CDN location near the origin (upper tier)</div>
+  <div class="ar" data-s="4">↓ short last hop</div>
+  <div class="n svc" data-s="4">Origin in Virginia</div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The user's connection ends at the near edge. The user's handshakes cost only the short RTT.</p>
+  <p class="cap" data-s="2">Without a backbone, the edge's request crosses the public internet. Each network chooses the next one by BGP policy, which can lead through a congested exchange.</p>
+  <p class="cap" data-s="3">With a backbone, the CDN carries the request on its own links. It measures the paths and avoids the bad one. The connections between its locations are already open and warm.</p>
+  <p class="cap" data-s="4">The request leaves the CDN's network close to the origin. Only that last short hop uses a connection from the edge pool of chapter 9.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<div class="lab" id="w-bb">
+ <div class="t">Lab: three paths from Mumbai to Virginia</div>
+ <p class="hint">Each line is one link with its delay and loss. Pick the path the request takes. The panel shows total RTT, total loss, the rough throughput from the model above, and the time to fetch 1 MB on a new connection (handshakes plus slow start) and on a warm one. "Break it": congest the exchange point. The BGP path does not move. The smart route moves away. All numbers are examples.</p>
+ <div class="bar"><label>Path <select id="bb-p"><option value="bgp">Public internet (BGP path)</option><option value="bb">CDN backbone, fixed route</option><option value="smart">CDN backbone, smart routing</option></select></label>
+ <label><input type="checkbox" id="bb-cong"> Break it: congest the exchange point</label>
+ <label><input type="checkbox" id="bb-warm" checked> Warm connection (pool)</label></div>
+ <svg class="svgmap" id="bb-svg" viewBox="0 0 760 230"></svg>
+ <div id="bb-stats"></div>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<section class="ch" id="c12" data-title="DDoS: the edge as the first line of defence">
+<h2>12. DDoS: the edge as the first line of defence</h2>
+<div class="topics">Covers: note 3 · Sources: Cloudflare Learning Center (What is a DDoS attack, SYN flood, What is Anycast); RFC 4987 §3.6 (SYN cookies); Cloudflare DDoS reports 2025 Q4 (2026-02-05) and 2026 H1 (2026-08-11); nginx docs (limit_req); AWS CloudFront docs (managed prefix list); Cloudflare docs (Tunnel, IP ranges)</div>
+<p class="lead">A distributed denial-of-service (DDoS) attack floods a target from many machines at once, so real users cannot get through. A CDN stands in front of the origin, so the attack hits the CDN first. The CDN has far more capacity than one origin, spreads the attack over many locations, and drops attack traffic before it reaches the origin.</p>
+<h3>Three kinds of attack</h3>
+<table>
+<tr><th>Kind (Cloudflare's terms)</th><th>What it uses up</th><th>Example</th><th>What the edge does</th></tr>
+<tr><td>Volumetric</td><td>"all available bandwidth between the target and the larger Internet"</td><td>UDP floods, DNS amplification</td><td>Anycast spreads it over every location. Each takes a share. Non-HTTP traffic to a web address is dropped.</td></tr>
+<tr><td>Protocol</td><td>connection state in servers, firewalls and load balancers (layers 3 and 4)</td><td>SYN flood: many SYNs, never an ACK</td><td>SYN cookies: "allocate no state at all for connections in SYN-RECEIVED" (RFC 4987 §3.6). Only completed handshakes reach the edge's HTTP layer, and none reach the origin.</td></tr>
+<tr><td>Application layer</td><td>server work per request: "a single HTTP request can be expensive"</td><td>HTTP flood</td><td>Cache absorbs floods of cacheable GETs. Rate limits and a WAF (web application firewall) filter the rest.</td></tr>
+</table>
+<p>Scale: Cloudflare reported "A record-setting 31.4 Tbps attack" that "lasted just 35 seconds" (2025 Q4 report, 5 Feb 2026). Its 2026 H1 report says its defence runs in "330+ cities globally, backed by 500 Tbps of network capacity". It also says "96.62% of network-layer attacks" stayed under 500 Mbps. Most attacks are small, but even a small one can fill one origin's link.</p>
+<h3>Two ways around the edge</h3>
+<p><b>Cache busting.</b> The cache only helps when requests share a key. An attacker adds a random query string (<code>?r=8812</code>) to every request. Each is a new key, so each is a miss and goes to the origin. Rate limits, WAF rules, and dropping unknown query parameters from the key are the defence. This is reasoning from the cache key rule, not a quote.</p>
+<p><b>Going straight to the origin.</b> If the origin's IP address is known (old DNS records, a mail server on the same IP, a leak in a header), the attacker skips the CDN. Lock the origin down so it accepts only CDN traffic: a firewall that allows only the CDN's address ranges (AWS keeps a managed prefix list "which prevents non-CloudFront traffic from reaching your origin"), or a tunnel with outbound-only connections and no public IP, such as Cloudflare Tunnel. A firewall on the origin drops attack packets only after they have crossed the origin's own link, so a flood bigger than that link still hurts. With no public IP, there is nothing to send the flood to.</p>
+
+<div class="lab" id="w-ddos">
+ <div class="t">Lab: send an attack, switch defences on</div>
+ <p class="hint">Pick an attack and switch defences on and off. The meters show load as a share of capacity at each layer: the busiest edge location's link, the edge's connection table, and the origin. Over 100% means real users are refused. Capacities and attack sizes are example numbers. Try a GET flood on a cached file: the cache takes it all. Then break it twice: cache busting (random query strings) and an attack on the origin's IP without lock-down.</p>
+ <div class="bar"><label>Attack <select id="dd-a"><option value="none">None (normal traffic)</option><option value="vol">Volumetric: 2 Tbps UDP flood</option><option value="syn">Protocol: SYN flood, 50 M packets/s</option><option value="get">HTTP GET flood on a cached file, 2 M req/s</option><option value="bust">Break it: HTTP flood with random query strings, 2 M req/s</option><option value="ip">Break it: flood sent to the origin's IP, 20 Gbps</option></select></label></div>
+ <div class="bar"><label><input type="checkbox" id="dd-any" checked> Anycast over 300 locations</label><label><input type="checkbox" id="dd-syn" checked> SYN cookies</label><label><input type="checkbox" id="dd-cache" checked> Cache</label><label><input type="checkbox" id="dd-rl"> Rate limit per IP + WAF</label><label><input type="checkbox" id="dd-lock"> Origin hidden (tunnel, no public IP)</label></div>
+ <div id="dd-meters"></div>
+ <div class="trace" id="dd-out"></div>
+</div>
+
+<div class="lab term" data-tool="cdn" id="dd-real">
+ <div class="t">Lab: rate limit and cache busting on the real edge</div>
+ <p class="hint"><code>/limited/</code> on the edge has <code>limit_req</code>: 5 requests per second per client IP, with a burst of 10 (<code>burst=10 nodelay</code>), and status 429 for the rest. nginx's limit uses the "leaky bucket" method. The last line of the flood presets counts requests that reached the origin.</p>
+ <p class="hint">"30 at once from one IP": 11 get 200 (1 plus the burst of 10), 19 get 429. Wait a few seconds and run it again: the bucket drained, so 11 pass again. "GET flood on a cached file": 200 requests, the origin gets 0 or 1. If the 10 s lifetime ends during the flood, one request shows REVALIDATED and others UPDATING: nginx serves the old copy while one request checks with the origin (<code>proxy_cache_use_stale updating</code>). Now break it. "Cache-busting flood" sends 50 requests, each with a random query string: 50 MISS, the origin gets 50. The cache did nothing. Run the rate-limited version, "Cache busting against /limited/": at most 11 pass and reach the origin (fewer if the bucket has not drained yet), the rest get 429 at the edge.</p>
+ <template class="setup">cdn-setup
+origin_requests() { curl -s cdn-origin/status | awk 'NR==3 {print $3}'; }
+flood() { before=$(origin_requests)
+  for i in $(seq "$1"); do if [ -n "$3" ]; then echo "$2?r=$RANDOM$RANDOM"; else echo "$2"; fi; done |
+    xargs -P 20 -n 1 curl -s -o /dev/null -w '%{http_code} %header{x-cache}\n' | sort | uniq -c
+  echo "origin got $(( $(origin_requests) - before - 1 )) requests"; }</template>
+ <template data-label="30 at once from one IP">seq 30 | xargs -P 30 -I{} curl -s -o /dev/null -w "%{http_code}\n" cdn-edge/limited/static/logo.svg | sort | uniq -c</template>
+ <template data-label="GET flood on a cached file">curl -s -o /dev/null "cdn-edge/static/logo.svg?lab=flood"
+flood 200 "cdn-edge/static/logo.svg?lab=flood"</template>
+ <template data-label="Break it: cache-busting flood">flood 50 cdn-edge/static/logo.svg bust</template>
+ <template data-label="Cache busting against /limited/">flood 30 cdn-edge/limited/static/logo.svg bust</template>
+</div>
+
+<h3>What to remember for an interview</h3>
+<table>
+<tr><th>Question</th><th>Short answer</th></tr>
+<tr><td>Why is a CDN faster on a hit?</td><td>Every round trip is short, and the origin does no work.</td></tr>
+<tr><td>Why is it faster on a miss?</td><td>The user's handshakes end at the near edge. The edge uses a warm pooled connection, often over its own backbone, so the long distance costs one round trip, not three or more.</td></tr>
+<tr><td>What does it cache?</td><td>GET and HEAD responses that Cache-Control allows for shared caches. Not private, no-store or (in most CDNs) Set-Cookie responses. POST passes through.</td></tr>
+<tr><td>How do many users become few origin connections?</td><td>Hits need none. Misses reuse pooled connections one after another (HTTP/1.1) or share one connection as streams (HTTP/2). Coalescing and tiered cache cut repeated misses.</td></tr>
+<tr><td>What goes wrong?</td><td>Leaked private pages from a wrong cache rule, missing Vary, old content after a deploy, misses at many locations at once, the idle close race, cache busting, and a known origin IP.</td></tr>
+</table>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+</main>
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const rnd=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function log(el,msg,cls=''){if(typeof el==='string')el=$(el);const d=document.createElement('div');d.className=cls;d.textContent=msg;el.appendChild(d);el.scrollTop=el.scrollHeight;}
+const stat=(v,label,color)=>`<span class="stat"><b${color?` style="color:var(--${color})"`:''}>${v}</b>${label}</span>`;
+
+/* ---------- nav + progress ---------- */
+const secs=$$('section.ch'),done=new Set(JSON.parse(localStorage.getItem('cdn-done')||'[]'));
+secs.forEach((s,i)=>{const a=document.createElement('a');a.href='#'+s.id;a.dataset.id=s.id;a.innerHTML=`<span class="num">${i+1}</span><span>${s.dataset.title}</span>`;a.onclick=()=>$('#side').classList.remove('open');$('#nav').appendChild(a);
+ $('.done-btn',s).onclick=()=>{done.has(s.id)?done.delete(s.id):done.add(s.id);localStorage.setItem('cdn-done',JSON.stringify([...done]));paintNav();};});
+function paintNav(){$$('#nav a').forEach(a=>a.classList.toggle('done',done.has(a.dataset.id)));secs.forEach(s=>$('.done-btn',s).textContent=done.has(s.id)?'✓ Read (click to undo)':'Mark chapter as read');$('#prog i').style.width=(done.size/secs.length*100)+'%';}
+paintNav();
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)$$('#nav a').forEach(a=>a.classList.toggle('cur',a.dataset.id===e.target.id));}),{rootMargin:'-35% 0px -60% 0px'});
+secs.forEach(s=>io.observe(s));
+
+/* ---------- build-up diagrams ---------- */
+$$('.build').forEach(b=>{
+ const items=$$('.stage [data-s]',b),caps=$$('.cap',b),ctl=$('.ctl',b);
+ const max=Math.max(...items.map(e=>+e.dataset.s),...caps.map(c=>+c.dataset.s));let cur=1;
+ ctl.innerHTML='<button data-a="first">⏮</button><button data-a="prev">◀ Back</button><button class="pri" data-a="next">Next ▶</button><button data-a="all">Show all</button><span></span>';
+ function show(fresh){items.forEach(e=>{const s=+e.dataset.s;e.classList.toggle('off',s>cur);e.classList.remove('fresh');if(fresh&&s===cur){void e.offsetWidth;e.classList.add('fresh');}});
+  caps.forEach(c=>c.classList.toggle('on',+c.dataset.s===cur));$('span',ctl).textContent=`Step ${cur} of ${max}`;$('[data-a=prev]',ctl).disabled=cur<=1;$('[data-a=next]',ctl).disabled=cur>=max;}
+ ctl.onclick=e=>{const a=e.target.dataset.a;if(!a)return;cur=a==='next'?cur+1:a==='prev'?cur-1:a==='first'?1:max;cur=Math.max(1,Math.min(max,cur));show(a==='next');};
+ show(false);
+});
+
+
+/* ---------- labs: one IIFE per lab ---------- */
+
+/* ch1: round trips of one page load */
+(()=>{const ro=$('#ld-ro'),re=$('#ld-re'),mode=$('#ld-mode'),t12=$('#ld-tls12');
+ function steps(m,R,r,tls){const s=[];
+  if(m==='direct'){s.push(['TCP handshake',R,1]);for(let i=1;i<=tls;i++)s.push([`TLS round trip ${i}`,R,1]);s.push(['GET HTML',R,1]);s.push(['GET 6 files (HTTP/2)',R,1]);return s;}
+  s.push(['TCP to edge',r,0]);for(let i=1;i<=tls;i++)s.push([`TLS to edge ${i}`,r,0]);
+  if(m==='hit'){s.push(['GET HTML: hit',r,0]);s.push(['GET 6 files: hits',r,0]);return s;}
+  s.push(['GET HTML to edge',r,0]);
+  if(m==='cold'){s.push(['edge: TCP to origin',R,1]);for(let i=1;i<=tls;i++)s.push([`edge: TLS to origin ${i}`,R,1]);}
+  s.push(['edge fetches HTML',R,1]);s.push(['GET 6 files to edge',r,0]);
+  if(m==='cold'){s.push(['edge: 6 new conns, TCP',R,1]);for(let i=1;i<=tls;i++)s.push([`edge: 6 new conns, TLS ${i}`,R,1]);}
+  s.push(['edge fetches 6 files',R,1]);return s;}
+ function draw(){const R=+ro.value,r=+re.value,tls=t12.checked?2:1,m=mode.value;
+  $('#ld-ro-v').textContent=R+' ms';$('#ld-re-v').textContent=r+' ms';
+  const s=steps(m,R,r,tls),tot=s.reduce((a,x)=>a+x[1],0),base=steps('direct',R,r,tls).reduce((a,x)=>a+x[1],0),scale=Math.max(tot,base,1);
+  let at=0;$('#ld-wf').innerHTML=s.map(([l,ms,long])=>{const h=`<div class="wf"><span style="left:-200px;width:195px">${l}</span><i style="left:${at/scale*100}%;width:${Math.max(.6,ms/scale*100)}%;background:var(--${long?'bad':'edge'})"></i><em style="position:absolute;left:${Math.min(92,(at+ms)/scale*100+1)}%;top:2px;color:var(--mute);font-style:normal;font-size:11px">${ms}</em></div>`;at+=ms;return h;}).join('');
+  const longN=s.filter(x=>x[2]).length,diff=tot-base;
+  $('#ld-stats').innerHTML=stat(tot+' ms','total')+stat(longN,'long round trips','bad')+stat(s.length-longN,'short round trips','edge')+(m==='direct'?'':stat((diff>0?'+':'')+diff+' ms','vs no CDN',diff>0?'bad':'ok'));}
+ [ro,re,mode,t12].forEach(e=>e.oninput=draw);
+ $$('#w-load [data-p]').forEach(b=>b.onclick=()=>{mode.value=b.dataset.p;draw();});
+ draw();
+})();
+
+/* ch2: anycast and DNS steering */
+(()=>{const pops=['Frankfurt','Mumbai','Virginia','Singapore'],off=new Set();
+ const users={Berlin:[['Frankfurt',2,12],['Virginia',3,95],['Mumbai',4,130],['Singapore',4,160]],
+  Mumbai:[['Mumbai',1,8],['Singapore',3,60],['Frankfurt',3,120],['Virginia',4,210]],
+  Toronto:[['Frankfurt',2,95],['Virginia',3,25],['Singapore',4,230],['Mumbai',5,240]],
+  Jakarta:[['Singapore',2,20],['Mumbai',3,70],['Frankfurt',4,170],['Virginia',4,230]]};
+ const mode=$('#any-mode'),res=$('#any-res');
+ function draw(){
+  $('#any-pops').innerHTML='Edge locations (click to take offline): '+pops.map(p=>`<button data-pop="${p}" class="${off.has(p)?'dan':''}">${off.has(p)?'✗ ':'✓ '}${p}</button>`).join('');
+  $('#any-users').innerHTML=Object.entries(users).map(([u,routes])=>{
+   const live=routes.filter(r=>!off.has(r[0]));let pick,why;
+   if(mode.value==='any'){pick=[...live].sort((a,b)=>a[1]-b[1]||a[2]-b[2])[0];why='BGP: fewest AS hops';}
+   else{const far=u==='Mumbai'&&res.value==='far',fromVA={Frankfurt:90,Mumbai:210,Virginia:3,Singapore:230};
+    pick=far?[...live].sort((a,b)=>fromVA[a[0]]-fromVA[b[0]])[0]:[...live].sort((a,b)=>a[2]-b[2])[0];
+    why=!far?(u==='Mumbai'&&res.value==='ecs'?'CDN DNS: lowest RTT for the client subnet':'CDN DNS: lowest RTT for the resolver, which is near the user'):'CDN DNS: lowest RTT for the resolver in Virginia, not for the user';}
+   const fastest=[...live].sort((a,b)=>a[2]-b[2])[0];
+   const rows=routes.map(r=>`<tr class="${off.has(r[0])?'badrow':pick&&r[0]===pick[0]?'hl':''}"><td>${r[0]}${off.has(r[0])?' (withdrawn)':''}</td><td>${r[1]}</td><td>${r[2]} ms</td></tr>`).join('');
+   const note=pick?(pick[2]>fastest[2]?`<span class="pill bad">${pick[2]-fastest[2]} ms slower than ${fastest[0]}</span>`:'<span class="pill ok">fastest</span>'):'<span class="pill bad">no edge reachable</span>';
+   return `<div class="ebox"><h5>User in ${u} → ${pick?pick[0]+', '+pick[2]+' ms':'none'} ${note}</h5><div class="xp-st">${why}</div><table class="ctab"><tr><th>Route to</th><th>AS hops</th><th>RTT</th></tr>${rows}</table></div>`;}).join('');}
+ $('#any-pops').onclick=e=>{const p=e.target.dataset.pop;if(!p)return;off.has(p)?off.delete(p):off.add(p);draw();};
+ mode.onchange=res.onchange=draw;$('#any-reset').onclick=()=>{off.clear();draw();};
+ draw();
+})();
+
+/* ch3: three edge caches */
+(()=>{const TTL=60,cities=['Frankfurt','Singapore','Virginia'];let t,caches,st,lastCity;
+ const lg=$('#ca-log');
+ function reset(){t=0;caches=Object.fromEntries(cities.map(c=>[c,new Map()]));st={hit:0,miss:0,origin:0};lastCity=null;lg.innerHTML='';draw();}
+ function send(city,file){const c=caches[city],e=c.get(file);let s;
+  if(e&&t-e.at<TTL){s='HIT';st.hit++;log(lg,`t=${t}s ${city}: GET ${file} → HIT (age ${t-e.at} s). Origin not asked.`,'ok');}
+  else if(e){s='EXPIRED';st.miss++;st.origin++;e.at=t;log(lg,`t=${t}s ${city}: GET ${file} → stale copy (age ${t-e.at+TTL}+ s). Edge revalidates with the origin.`,'warn');}
+  else{s='MISS';st.miss++;st.origin++;c.set(file,{at:t});log(lg,`t=${t}s ${city}: GET ${file} → MISS. Edge fetches from the origin and stores it.`,'bad');}
+  lastCity=city;draw();return s;}
+ function draw(){
+  $('#ca-edges').innerHTML=cities.map(c=>{const rows=[...caches[c]].map(([k,e])=>{const age=t-e.at,fresh=age<TTL;return `<tr class="${fresh?'ok':'badrow'}"><td>${k}</td><td>${age} s</td><td>${fresh?'fresh':'stale'}</td></tr>`;}).join('')||'<tr><td colspan="3" class="xp-st">empty</td></tr>';
+   return `<div class="ebox ${c===lastCity?'hot':''}"><h5>Edge ${c}</h5><table class="ctab"><tr><th>Key (path)</th><th>Age</th><th>State</th></tr>${rows}</table></div>`;}).join('');
+  const n=st.hit+st.miss;$('#ca-stats').innerHTML=stat('t = '+t+' s','clock')+stat(st.hit,'hits','ok')+stat(st.miss,'misses','bad')+stat(st.origin,'origin requests','warn')+stat(n?Math.round(st.hit/n*100)+'%':'-','hit ratio');}
+ $('#ca-send').onclick=()=>send($('#ca-city').value,$('#ca-file').value);
+ $('#ca-burst').onclick=()=>{const fs=['/static/logo.svg','/static/app.js','/index.html'];for(let i=0;i<20;i++)send(pick(cities),pick(fs));};
+ $('#ca-tick').onclick=()=>{t+=60;log(lg,`clock moved to t=${t}s. Copies older than ${TTL} s are now stale.`,'info');draw();};
+ $('#ca-reset').onclick=reset;reset();
+})();
+
+/* ch4: will the edge store this response? */
+(()=>{const f={m:$('#dc-m'),cc:$('#dc-cc'),auth:$('#dc-auth'),cookie:$('#dc-cookie'),lm:$('#dc-lm'),all:$('#dc-all')};
+ const P={static:['GET','public, max-age=3600',0,0,1,0],post:['POST','',0,0,0,0],acct:['GET','private, max-age=60',0,1,0,0],auth:['GET','s-maxage=600, max-age=0',1,0,0,0],nc:['GET','no-cache',0,0,1,0],leak:['GET','private, max-age=60',0,1,0,1]};
+ function run(){const m=f.m.value,cc=f.cc.value,has=d=>cc.split(',').map(x=>x.trim().split('=')[0]).includes(d),num=d=>+((cc.match(new RegExp(d+'=(\\d+)'))||[])[1]),L=[];let res;
+  L.push(['mute',`Request: ${m}${f.auth.checked?' with Authorization':''}. Response: 200, Cache-Control: ${cc||'(none)'}${f.cookie.checked?', Set-Cookie':''}${f.lm.checked?', Last-Modified':''}.`]);
+  const perUser=[has('private')&&'private',f.cookie.checked&&'Set-Cookie',f.auth.checked&&'Authorization'].filter(Boolean);
+  if(m==='POST'){L.push(['mute','RFC 9110 §9.3.3: a POST response is cacheable only with explicit freshness and a Content-Location equal to the URI.']);L.push(['warn','nginx stores only GET and HEAD (proxy_cache_methods). Most CDNs do the same.']);res=['bad','PASS: sent to the origin every time. Not stored.'];}
+  else if(f.all.checked){L.push(['warn','Edge rule: ignore Cache-Control, Expires and Set-Cookie. Store every 200 for 60 s.']);
+   if(perUser.length){L.push(['bad',`The response is for one user (${perUser.join(', ')}). The next user with the same key gets this user's copy.`]);res=['bad','STORED for 60 s: one user\'s page goes to other users.'];}
+   else res=['ok','STORED for 60 s.'];}
+  else{L.push(['ok',`${m} is a safe method (RFC 9110 §9.2.1). Its response may be stored.`]);
+   if(has('no-store')){L.push(['bad','no-store: "a cache MUST NOT store any part of either the immediate request or the response" (RFC 9111 §5.2.2.5).']);res=['bad','NOT STORED.'];}
+   else if(has('private')){L.push(['bad','private: "a shared cache MUST NOT store the response" (§5.2.2.7). The browser may keep it.']);res=['bad','NOT STORED by the CDN. Only the browser may keep it.'];}
+   else if(f.auth.checked&&!(has('public')||has('s-maxage')||has('must-revalidate'))){L.push(['bad','The request had Authorization, and the response has no public, s-maxage or must-revalidate (§3).']);res=['bad','NOT STORED.'];}
+   else{if(f.auth.checked)L.push(['ok',`Authorization is present, but ${has('s-maxage')?'s-maxage':has('public')?'public':'must-revalidate'} lets a shared cache store it (§3).`]);
+    if(f.cookie.checked){L.push(['warn','Set-Cookie: RFC 9111 §7 says it "does not inhibit caching". But nginx does not cache a response with Set-Cookie, and many CDNs act the same.']);res=['bad','NOT STORED by nginx (Set-Cookie). A cache that follows only the RFC could store it.'];}
+    else if(has('s-maxage')){L.push(['ok',`s-maxage=${num('s-maxage')}: shared caches use it instead of max-age (§5.2.2.10). Browsers use max-age=${num('max-age')||0}.`]);res=['ok',`STORED: fresh for ${num('s-maxage')} s at the edge.`];}
+    else if(has('max-age')){L.push(['ok',`max-age=${num('max-age')}: fresh for ${num('max-age')} s (§5.2.2.1).`]);res=['ok',`STORED: fresh for ${num('max-age')} s.`];}
+    else if(has('no-cache')){L.push(['warn','no-cache: may be stored, but must be checked with the origin before every reuse (§5.2.2.4).']);res=['warn','STORED, but every reuse costs a revalidation round trip.'];}
+    else if(f.lm.checked){L.push(['warn','No explicit lifetime. RFC 9111 §4.2.2 allows a guess. "A typical setting" is 10% of the time since Last-Modified: 10 days gives about 1 day.']);L.push(['warn','nginx does not guess. It needs Cache-Control, Expires or proxy_cache_valid.']);res=['warn','RFC: may store for about 1 day. nginx: NOT STORED.'];}
+    else{L.push(['bad','No lifetime and no Last-Modified: nothing to compute freshness from.']);res=['bad','NOT STORED (or stored and revalidated on every use).'];}}}
+  $('#dc-out').innerHTML=L.map(([c,t])=>`<div class="${c}">• ${t}</div>`).join('')+`<div class="${res[0]}"><b>→ ${res[1]}</b></div>`;}
+ Object.values(f).forEach(e=>e.onchange=run);
+ $$('#w-dec [data-p]').forEach(b=>b.onclick=()=>{const p=P[b.dataset.p];f.m.value=p[0];f.cc.value=p[1];f.auth.checked=!!p[2];f.cookie.checked=!!p[3];f.lm.checked=!!p[4];f.all.checked=!!p[5];run();});
+ run();
+})();
+
+/* ch6: one stored copy over time */
+(()=>{const MA=60,SWR=30,SIE=300,MAX=420,ts=$('#fr-t'),chg=$('#fr-chg'),down=$('#fr-down'),mr=$('#fr-mr');
+ const pc=v=>v/MAX*100;
+ function run(){const t=+ts.value;$('#fr-tv').textContent=t+' s';
+  const seg=(a,b,c)=>`<i style="left:${pc(a)}%;width:${pc(b-a)}%;background:${c}"></i>`;
+  $('#fr-tl').innerHTML=seg(0,MA,'var(--ok)')+(mr.checked?'':seg(MA,MA+SWR,'var(--warn)')+seg(MA+SWR,MA+SIE,'var(--msg)'))+seg(mr.checked?MA:MA+SIE,MAX,'var(--line)')+`<b style="left:${pc(t)}%"></b>`+
+   [0,MA,MA+SWR,MA+SIE].filter((v,i)=>!mr.checked||i<2).map(v=>`<span style="left:${pc(v)}%">${v}s</span>`).join('');
+  const L=[];let res;
+  L.push(['mute',`Copy stored at t=0. Age now: ${t} s. Lifetime: max-age=${MA}.`]);
+  if(t<MA){L.push(['ok','Age is under max-age, so the copy is fresh. No request to the origin.']);res=['ok','HIT: served from the edge at once.'];}
+  else if(mr.checked){L.push(['warn','Stale, and must-revalidate is set: the copy may not be used until the origin confirms it (RFC 9111 §5.2.2.2).']);
+   if(down.checked){L.push(['bad','The origin does not answer. A cache "MUST generate an error response" (§5.2.2.2).']);res=['bad','504 Gateway Timeout. The copy is not served.'];}
+   else res=chg.checked?['warn','Revalidate: If-None-Match → 200 with new content. User waits one origin round trip. (nginx: EXPIRED)']:['ok','Revalidate: If-None-Match → 304 Not Modified. Copy is fresh again. User waits one origin round trip. (nginx: REVALIDATED)'];}
+  else if(t<MA+SWR){L.push(['warn',`Stale, but inside stale-while-revalidate=${SWR} (RFC 5861 §3).`]);
+   res=['ok','Served stale at once. The edge revalidates in the background, so no user waits.'];
+   L.push([down.checked?'bad':'mute',down.checked?'The background check fails. The copy stays stale and is still served inside the window.':(chg.checked?'The background check gets the new content (200). Later users get it.':'The background check gets 304. The copy is fresh again.')]);}
+  else{L.push(['warn','Stale and past the stale-while-revalidate window. The user waits while the edge revalidates.']);
+   if(!down.checked)res=chg.checked?['warn','If-None-Match → 200 with new content. (nginx: EXPIRED)']:['ok','If-None-Match → 304 Not Modified. Copy fresh again. (nginx: REVALIDATED)'];
+   else if(t<MA+SIE){L.push(['warn',`The origin fails. stale-if-error=${SIE} allows the stale copy for ${SIE} s after it went stale (RFC 5861 §4).`]);res=['ok','Served stale instead of an error. (nginx: STALE)'];}
+   else{L.push(['bad','The origin fails, and the stale-if-error window is over.']);res=['bad','502 or 504 error to the user.'];}}
+  $('#fr-out').innerHTML=L.map(([c,x])=>`<div class="${c}">• ${x}</div>`).join('')+`<div class="${res[0]}"><b>→ ${res[1]}</b></div>`;}
+ [ts,chg,down,mr].forEach(e=>e.oninput=run);
+ $('#fr-break').onclick=()=>{ts.value=120;down.checked=true;mr.checked=true;run();};
+ run();
+})();
+
+/* ch7: coalescing and tiered cache */
+(()=>{const E=['Frankfurt','Paris','Madrid','Warsaw','Milan','Vienna'],U=40;
+ $('#co-go').onclick=async()=>{const lock=$('#co-lock').checked,tier=$('#co-tier').checked,priv=$('#co-priv').checked,box=$('#co-rows');
+  box.innerHTML=E.map((e,i)=>`<div class="bar"><span style="width:90px;font-size:13px">${e}</span><div class="cells" id="co-r${i}">${'<div class="cell"></div>'.repeat(U)}</div></div>`).join('');
+  let origin=0,toTier=0,waited=0,ms=200;
+  for(let i=0;i<E.length;i++){const cells=$$(`#co-r${i} .cell`);
+   cells.forEach((c,j)=>{let cls;
+    if(lock&&j>0){waited++;cls=priv?(tier?'msg':'bad'):'busy';if(priv){tier?toTier++:origin++;}}
+    else{if(tier){cls='msg';toTier++;}else{cls='bad';origin++;}}
+    c.className='cell '+cls;});
+   await sleep(120);}
+  if(tier)origin+=priv?toTier:1;
+  if(lock&&priv)ms=400;
+  $('#co-stats').innerHTML=stat(origin,'origin requests',origin>1?'bad':'ok')+(tier?stat(toTier,'requests to upper tier','msg'):'')+stat(waited,'users waited on a lock','warn')+stat(`${tier?ms+200:ms} ms`,'slowest user (200 ms per hop, example)')+
+   `<p class="xp-st">${priv?'Private response: nothing could be stored, so every request went on to the origin'+(lock?', after waiting for the first.':'.'):origin===1?'One request reached the origin. Every other user was served from a cache.':'Each request that missed went on by itself.'}</p>`;};
+})();
+
+/* ch8: a new connection, flight by flight */
+(()=>{const P=$('#hs-p'),R=$('#hs-rtt'),out=$('#hs-out');let fl=[],shown=0;
+ const SS=[14.6,29.2,58.4];
+ function data(f,warm){if(warm){f.push(['<','response: 100 KB in one flight (window already large)',1]);return;}
+  SS.forEach((kb,i)=>{f.push(['<',`response round ${i+1}: ${kb} KB (window ${Math.round(kb/1.46)} segments)`,1]);if(i<SS.length-1)f.push(['>','ACKs: window doubles']);});}
+ function build(){const p=P.value,f=[];
+  if(p==='t13'||p==='t12'){f.push(['>','TCP SYN'],['<','TCP SYN-ACK']);}
+  if(p==='t13'){f.push(['>','TCP ACK + TLS ClientHello (key share)'],['<','TLS ServerHello, certificate, Finished'],['>','TLS Finished + GET /static/app.js']);data(f);}
+  if(p==='t12'){f.push(['>','TCP ACK + TLS ClientHello'],['<','TLS ServerHello, certificate, ServerHelloDone'],['>','TLS ClientKeyExchange, ChangeCipherSpec, Finished'],['<','TLS ChangeCipherSpec, Finished'],['>','GET /static/app.js']);data(f);}
+  if(p==='quic'){f.push(['>','QUIC Initial: TLS ClientHello'],['<','QUIC Initial + Handshake: ServerHello, certificate, Finished'],['>','Handshake Finished + GET /static/app.js']);data(f);}
+  if(p==='z'){f.push(['>','QUIC Initial: ClientHello + 0-RTT data: GET /static/app.js']);data(f);}
+  if(p==='zpost'){f.push(['>','QUIC Initial: ClientHello + 0-RTT data: POST /api/orders'],['<','Handshake + 1-RTT data: 201 Created, order placed',1],
+   ['!','An attacker who copied the first flight sends it again. The server places the order twice unless it refuses early data (425 Too Early, RFC 8470) or allows each ticket only once (RFC 8446 §8).']);}
+  if(p==='warm'){f.push(['>','GET /static/app.js on the pooled connection']);data(f,true);}
+  return f;}
+ function draw(){const r=+R.value,h=r/2;$('#hs-rv').textContent=r+' ms';let t=0,first=null,full=null;
+  out.innerHTML=fl.slice(0,shown).map(([d,txt,isData])=>{if(d==='!')return `<div class="r"><span style="color:var(--bad)">replay</span><span style="color:var(--bad)">${txt}</span></div>`;
+   t+=h;if(isData&&first==null)first=t;if(isData)full=t;
+   return `<div class="r ${d==='<'?'l':''}"><span>${Math.round(t)} ms</span><span class="m">${d==='>'?'edge ── '+txt+' ──▶ origin':'edge ◀── '+txt+' ── origin'}</span></div>`;}).join('')||'<div class="xp-st">Press "Next flight".</div>';
+  const done=shown>=fl.length;
+  $('#hs-stats').innerHTML=done?stat(first!=null?Math.round(first)+' ms':'-','first response byte')+stat(full!=null?Math.round(full)+' ms':'-','whole 100 KB')+stat((full/r).toFixed(1),'round trips','warn'):stat(`${shown} / ${fl.length}`,'flights');}
+ function reset(){fl=build();shown=0;draw();}
+ $('#hs-next').onclick=()=>{if(shown<fl.length)shown++;draw();};$('#hs-all').onclick=()=>{shown=fl.length;draw();};$('#hs-reset').onclick=reset;
+ P.onchange=reset;R.oninput=draw;reset();
+})();
+
+/* ch9: connection pool */
+(()=>{const RTT=80,lg=$('#pl-log'),N=$('#pl-n'),ET=$('#pl-et'),OT=$('#pl-ot'),M=$('#pl-m');let conns,t,seq,st;
+ function reset(){conns=[];t=0;seq=0;st={req:0,nw:0,reuse:0,hs:0,fail:0};lg.innerHTML='';draw();}
+ function age(){for(const c of conns)if(c.state==='idle'){const idle=t-c.since;
+   if(idle>=+ET.value){c.state='dead';c.why='edge closed it after '+ET.value+' s idle';log(lg,`t=${t}s conn #${c.id}: ${c.why}`,'mute');}
+   else if(idle>=+OT.value&&!c.oc){c.oc=true;}}
+  conns=conns.filter(c=>c.state!=='dead'||c.fresh);conns.forEach(c=>c.fresh=false);}
+ function open(){const c={id:++seq,state:'busy',since:t,n:0,fresh:false};conns.push(c);st.nw++;st.hs+=2*RTT;c.isNew=true;return c;}
+ function one(c){c.n++;st.req++;}
+ function take(){const idle=conns.filter(c=>c.state==='idle').sort((a,b)=>b.since-a.since);
+  for(const c of idle){c.state='busy';
+   if(c.oc){st.fail++;c.state='dead';c.why='origin had closed it';c.fresh=true;
+    if(M.value==='POST'){log(lg,`t=${t}s conn #${c.id}: POST sent on a connection the origin closed → reset. A proxy MUST NOT retry a POST (RFC 9110 §9.2.2). User gets 502.`,'bad');return null;}
+    log(lg,`t=${t}s conn #${c.id}: GET sent on a connection the origin closed → reset. GET is idempotent, so the edge sends it again on another connection.`,'warn');continue;}
+   st.reuse++;c.isNew=false;return c;}
+  return open();}
+ function trim(){const idle=conns.filter(c=>c.state==='idle').sort((a,b)=>b.since-a.since);
+  idle.slice(+N.value).forEach(c=>{c.state='dead';c.fresh=true;c.why=+N.value?`more than ${N.value} idle, closed`:'keepalive 0: closed after the response';log(lg,`t=${t}s conn #${c.id}: ${c.why}`,'mute');});}
+ async function send(k){age();const got=[];for(let i=0;i<k;i++){const c=take();if(c)got.push(c);}
+  got.forEach(one);
+  log(lg,`t=${t}s ${k} ${M.value} request${k>1?'s':''}: `+got.map(c=>`#${c.id} ${c.isNew?'new (3 RTT)':'reused (1 RTT)'}`).join(', '),got.some(c=>c.isNew)?'info':'ok');
+  draw();await sleep(450);got.forEach(c=>{c.state='idle';c.since=t;});trim();draw();}
+ function draw(){$('#pl-nv').textContent=N.value;
+  $('#pl-slots').innerHTML=conns.map(c=>`<div class="slot ${c.state} ${c.isNew&&c.state==='busy'?'new':''}" style="${c.oc&&c.state==='idle'?'border-style:dashed;border-color:var(--bad)':''}">#${c.id} ${c.state==='idle'?`idle ${t-c.since} s`:c.state==='busy'?'busy':'closed'}<br><small>${c.n} req${c.oc&&c.state==='idle'?' · origin side closed':c.state==='dead'?' · '+c.why:''}</small></div>`).join('')||'<span class="xp-st">pool empty</span>';
+  $('#pl-stats').innerHTML=stat('t = '+t+' s','clock')+stat(st.req,'requests')+stat(st.nw,'new connections','bad')+stat(st.reuse,'reused','ok')+stat(st.hs+' ms','spent on TCP + TLS','warn')+stat(st.fail,'failed reuse','bad')+stat(st.req?Math.round(st.reuse/(st.reuse+st.nw)*100)+'%':'-','reuse ratio');}
+ $('#pl-1').onclick=()=>send(1);$('#pl-b').onclick=()=>send(8);
+ $('#pl-w').onclick=()=>{t+=10;age();draw();log(lg,`clock +10 s → t=${t}s`,'info');};
+ $('#pl-reset').onclick=reset;N.oninput=draw;
+ $('#pl-break').onclick=async()=>{reset();ET.value='30';OT.value='5';N.value=4;M.value='GET';await send(2);t+=10;age();log(lg,`clock +10 s → t=${t}s. The origin closed its side after 5 s. The edge does not know yet.`,'info');draw();await sleep(300);await send(1);};
+ reset();
+})();
+
+/* ch10: 12 requests in flight */
+(()=>{const RTT=100,RUN=140,LOST={3:110,8:125},SCALE=600;
+ $('#mx-go').onclick=()=>{const p=$('#mx-p').value,loss=$('#mx-loss').checked,rq=[];
+  if(p==='h1'){const free=[0,0,0,0];for(let i=0;i<12;i++){const c=free.indexOf(Math.min(...free)),s=free[c],st=[];let end=s+RUN;
+    if(loss&&LOST[i]!=null){st.push([s+110,s+110+RTT]);end+=RTT;}free[c]=end;rq.push({s,end,st,conn:'conn '+(c+1)});}}
+  else{let stalls=[];if(loss)stalls=Object.values(LOST).map(a=>[a,a+RTT]);
+   const union=stalls.length?[[Math.min(...stalls.map(x=>x[0])),Math.max(...stalls.map(x=>x[1]))]]:[];
+   for(let i=0;i<12;i++){let st=[];if(loss)st=p==='h2'?union:(LOST[i]!=null?[[LOST[i],LOST[i]+RTT]]:[]);
+    rq.push({s:0,end:RUN+st.reduce((a,x)=>a+x[1]-x[0],0),st,conn:p==='h2'?`conn 1, stream ${2*i+1}`:`conn 1, stream ${4*i}`});}}
+  $('#mx-wf').innerHTML=rq.map((r,i)=>`<div class="wf"><span style="left:-125px">request ${i+1}</span><i style="left:${r.s/SCALE*100}%;width:${(r.end-r.s)/SCALE*100}%"></i>${r.st.map(([a,b])=>`<i style="left:${a/SCALE*100}%;width:${(b-a)/SCALE*100}%;background:var(--bad)"></i>`).join('')}<em style="position:absolute;right:0;top:2px;color:var(--mute);font-style:normal;font-size:11px">${r.conn} · ${r.end} ms</em></div>`).join('');
+  const last=Math.max(...rq.map(r=>r.end)),stalled=rq.filter(r=>r.st.length).length,conns=new Set(rq.map(r=>r.conn.split(',')[0])).size;
+  $('#mx-stats').innerHTML=stat(last+' ms','last request done')+stat(conns,'origin connections')+stat(stalled,'requests stalled by loss',stalled?'bad':'ok')+stat(Math.round(rq.reduce((a,r)=>a+r.end,0)/12)+' ms','average');};
+ $('#mx-go').click();
+})();
+
+/* ch11: three paths from Mumbai to Virginia */
+(()=>{const svg=$('#bb-svg'),P=$('#bb-p'),C=$('#bb-cong'),W=$('#bb-warm');
+ const N={edge:[40,60,'Edge Mumbai'],ispa:[180,60,'ISP A'],ix:[330,60,'Exchange point'],ispb:[480,60,'ISP B'],orig:[720,115,'Origin Virginia'],mrs:[260,175,'CDN Marseille'],va:[560,175,'CDN Virginia']};
+ const L={pub:[['edge','ispa',4,.00002],['ispa','ix',70,.00004],['ix','ispb',80,.00003],['ispb','orig',26,.00001]],bb:[['edge','mrs',100,.00005],['mrs','va',88,.00005],['va','orig',2,0]]};
+ const path=(k,cong)=>L[k].map(([a,b,ms,p])=>(cong&&a==='ix')?[a,b,ms+60,.02,1]:[a,b,ms,p,0]);
+ const sum=ls=>({rtt:ls.reduce((s,l)=>s+l[2],0),loss:1-ls.reduce((s,l)=>s*(1-l[3]),1)});
+ const mbps=(rtt,p)=>1460*8/(rtt/1000)*1.22/Math.sqrt(Math.max(p,1e-6))/1e6;
+ function fetchMs(rtt,bw,warm){const bdp=bw*1e6/8*rtt/1000;let left=1e6,ms=warm?rtt:3*rtt,cw=14600;
+  if(warm){while(left>0){left-=bdp;ms+=rtt;}return ms-rtt;}
+  while(left>0){left-=Math.min(cw,bdp);cw*=2;ms+=rtt;}return ms-rtt;}
+ function draw(){const cong=C.checked,pub=path('pub',cong),bb=path('bb',cong),sp=sum(pub),sb=sum(bb);
+  const tp=fetchMs(sp.rtt,mbps(sp.rtt,sp.loss),W.checked),tb=fetchMs(sb.rtt,mbps(sb.rtt,sb.loss),W.checked);
+  const use=P.value==='bgp'?'pub':P.value==='bb'?'bb':(tp<=tb?'pub':'bb');
+  const line=(l,on)=>{const[a,b,ms,p,bad]=l,A=N[a],B=N[b];return `<line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" stroke="${bad?'var(--bad)':on?'var(--edge)':'var(--line)'}" stroke-width="${on?4:2}"/><text class="sm" x="${(A[0]+B[0])/2}" y="${(A[1]+B[1])/2-6}" text-anchor="middle">${ms} ms · ${(p*100).toFixed(p<.001?3:1)}%</text>`;};
+  svg.innerHTML=pub.map(l=>line(l,use==='pub')).join('')+bb.map(l=>line(l,use==='bb')).join('')+
+   Object.values(N).map(([x,y,t])=>`<circle cx="${x}" cy="${y}" r="7" fill="var(--panel2)" stroke="var(--mute)"/><text x="${x}" y="${y+22}" text-anchor="middle">${t}</text>`).join('');
+  const s=use==='pub'?sp:sb,bw=mbps(s.rtt,s.loss);
+  $('#bb-stats').innerHTML=stat(use==='pub'?'public internet':'CDN backbone','path used',use==='pub'?'warn':'plat')+stat(s.rtt+' ms','RTT')+stat((s.loss*100).toFixed(3)+'%','loss',s.loss>.005?'bad':'')+stat(bw.toFixed(1)+' Mbit/s','rough throughput, 1 connection')+stat(Math.round(fetchMs(s.rtt,bw,W.checked))+' ms','1 MB, '+(W.checked?'warm':'new')+' connection')+
+   (P.value==='smart'?`<p class="xp-st">Smart routing measured both paths. 1 MB takes about ${Math.round(tp)} ms on the public path (${sp.rtt} ms, ${(sp.loss*100).toFixed(3)}% loss) and ${Math.round(tb)} ms on the backbone (${sb.rtt} ms, ${(sb.loss*100).toFixed(3)}% loss). It chose the ${use==='pub'?'public path':'backbone'}.</p>`:'');}
+ [P,C,W].forEach(e=>e.onchange=draw);draw();
+})();
+
+/* ch12: DDoS */
+(()=>{const A=$('#dd-a'),D={any:$('#dd-any'),syn:$('#dd-syn'),cache:$('#dd-cache'),rl:$('#dd-rl'),lock:$('#dd-lock')};
+ // Example capacities: 100 Gbps per edge location link, 5 M half-open entries per location, origin 10 Gbps and 60 k req/s.
+ function run(){const a=A.value,d=Object.fromEntries(Object.entries(D).map(([k,v])=>[k,v.checked])),L=[];
+  const share=d.any?.03:1;let link=1*share/100*100,table=.02,origin=(d.cache?2.5:50)/60*100,olink=1/10*100;
+  L.push(['mute',`Normal traffic: 1 Gbps, 50 k req/s, ${d.cache?'95% cache hits':'no cache, every request to the origin'}.`]);
+  if(a==='vol'){link=2000*share/100*100;L.push([d.any?'ok':'bad',d.any?'Anycast: the botnet is spread out, so each location gets its own share. The busiest takes about 3% (60 Gbps).':'One location takes the whole 2 Tbps.']);L.push(['ok','UDP to a web address is not HTTP. The edge drops it. The origin sees none of it.']);}
+  if(a==='syn'){const half=50*3*share;table=d.syn?0:half/5*100;L.push(['mute',`Each SYN with no ACK leaves a half-open entry for about 3 s (example). ${d.any?'With anycast, the busiest location gets 3%.':''}`]);
+   L.push([d.syn?'ok':'bad',d.syn?'SYN cookies: the edge keeps no state for half-open connections (RFC 4987 §3.6). The table stays empty.':`${half.toFixed(1)} M half-open entries against 5 M slots.`]);L.push(['ok','No handshake completes, so nothing reaches the origin.']);}
+  if(a==='get'){link+=40*share;const toO=d.cache?0:(d.rl?2000*.2:2000);origin+=toO/60*100;
+   L.push([d.cache?'ok':'bad',d.cache?'All requests share one key. Each is a hit. The origin gets none.':`No cache: ${toO} k req/s go to the origin.`]);if(d.rl)L.push(['ok','Rate limit per IP: bots that send more than the limit get 429 (example: cuts 80%).']);}
+  if(a==='bust'){link+=40*share;const toO=d.rl?2000*.005:2000;origin+=toO/60*100;
+   L.push(['bad','Each request has a random query string, so each is a new cache key and a miss. The cache does not help.']);
+   L.push([d.rl?'ok':'bad',d.rl?'Rate limit and a WAF rule for the pattern stop most of it at the edge (example: 99.5%). 10 k req/s still reach the origin.':`${toO} k req/s reach the origin.`]);}
+  if(a==='ip'){if(d.lock)L.push(['ok','The origin has no public address. The attacker has no target. Only the CDN reaches it, through the tunnel.']);
+   else{olink+=200;L.push(['bad','The attacker found the origin\'s IP and skips the CDN. No edge defence applies. 20 Gbps fill a 10 Gbps link.']);L.push(['warn','A firewall on the origin machine would drop the packets, but only after they used the link.']);}}
+  const om=Math.max(origin,olink);
+  const meter=(label,v)=>`<div class="bar"><span style="width:240px;font-size:14px">${label}</span><div class="meter" style="flex:1"><i style="width:${Math.min(100,v)}%;background:var(--${v>100?'bad':v>70?'warn':'svc'})"></i></div><b style="width:70px;text-align:right;color:var(--${v>100?'bad':'text'})">${v<1?v.toFixed(1):Math.round(v)}%</b></div>`;
+  $('#dd-meters').innerHTML=meter('Busiest edge location link',link)+meter('Edge half-open connection table',table)+meter('Origin (requests or link)',om);
+  const down=[link,table,om].some(v=>v>100);
+  $('#dd-out').innerHTML=L.map(([c,x])=>`<div class="${c}">• ${x}</div>`).join('')+`<div class="${down?'bad':'ok'}"><b>→ ${down?'Overloaded: real users are refused.':'Real users get through.'}</b></div>`;}
+ [A,...Object.values(D)].forEach(e=>e.onchange=run);run();
+})();
+</script>
+<script type="module" src="../runtime/lab.js"></script>
+</body>
+</html>

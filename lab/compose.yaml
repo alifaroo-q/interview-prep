@@ -38,3 +38,59 @@ services:
     container_name: xp-gateway
     volumes: [./nginx.conf:/etc/nginx/nginx.conf:ro]
     depends_on: [toxiproxy]
+  cdn-origin:
+    # CDN lab origin. origin-key.pem is a self-signed key for a made-up name, for this lab only.
+    image: nginx:alpine
+    container_name: xp-cdn-origin
+    volumes: [./cdn/origin.conf:/etc/nginx/nginx.conf:ro, ./cdn/conn-headers.conf:/etc/nginx/conn-headers.conf:ro, ./cdn/origin-cert.pem:/etc/nginx/cert.pem:ro, ./cdn/origin-key.pem:/etc/nginx/key.pem:ro, cdn-www:/srv/www]
+    command: sh -c "mkdir -p /srv/www/static && { [ -f /srv/www/static/logo.svg ] || echo '<svg>v1</svg>' > /srv/www/static/logo.svg; } && exec nginx -g 'daemon off;'"
+    healthcheck: { test: [CMD, test, -e, /run/nginx.pid], interval: 1s, retries: 60 }   # not /status, so it adds no requests to the counters
+    networks: { default: { aliases: [origin.acmeshop.com] } }   # the name in its certificate, so TLS labs can verify it
+  cdn-edge:
+    # CDN lab edge: nginx proxy_cache in front of cdn-origin, through toxiproxy:22001.
+    image: nginx:alpine
+    container_name: xp-cdn-edge
+    volumes: [./cdn/edge.conf:/etc/nginx/nginx.conf:ro, cdn-cache:/var/cache/nginx/cdn]
+    depends_on: [toxiproxy, cdn-origin]
+  cdn-client:
+    # CDN lab shell. The nginx image has curl with HTTP/2 built in, so nothing is installed at start.
+    # /origin-www and /edge-cache are the origin's files and the edge's cache, so labs can change and inspect them.
+    image: nginx:alpine
+    container_name: xp-cdn-client
+    volumes: [cdn-www:/origin-www, cdn-cache:/edge-cache, ./cdn/setup.sh:/usr/local/bin/cdn-setup:ro]
+    command: [sleep, infinity]
+  net-client:
+    # TCP/TLS lab shell: curl, openssl, tcpdump, ss and tc. NET_ADMIN and NET_RAW let labs delay or drop this
+    # container's own packets (tc netem) and capture them (tcpdump). It talks to cdn-origin (443, and 8443 with 0-RTT on).
+    image: alpine:3.22
+    container_name: xp-net
+    cap_add: [NET_ADMIN, NET_RAW]
+    volumes: [./cdn/origin-cert.pem:/certs/origin.pem:ro, ./net/setup.sh:/usr/local/bin/net-setup:ro]
+    command: sh -c "apk add --no-cache curl openssl tcpdump iproute2 iproute2-tc >/dev/null && touch /ready && sleep infinity"
+    healthcheck: { test: [CMD, test, -f, /ready], interval: 1s, retries: 90 }
+    depends_on: [cdn-origin]
+  floci:
+    # AWS lab: Floci (floci.io), a local AWS emulator, MIT license. It runs EC2 instances, ECS tasks and Lambda functions
+    # as real containers through the Docker socket, so the AWS labs can start containers on this host. Local use only.
+    # Containers it starts carry the label floci=true; scripts/serve.sh removes them on exit.
+    image: floci/floci:2.2.0
+    container_name: xp-floci
+    environment: { FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED: "true", FLOCI_SERVICES_S3_ENFORCE_AUTH: "true" }
+    volumes: [/var/run/docker.sock:/var/run/docker.sock]
+  aws:
+    # AWS lab shell: the real AWS CLI, pointed at Floci. Credentials test/test are Floci's admin (root) user.
+    image: amazon/aws-cli:2.37.10
+    container_name: xp-aws
+    entrypoint: [sleep, infinity]
+    environment:
+      AWS_ENDPOINT_URL: http://floci:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_PAGER: ""
+      PATH: /lab:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    volumes: [./aws:/lab:ro]
+    depends_on: [floci, toxiproxy]
+volumes:
+  cdn-www:
+  cdn-cache:

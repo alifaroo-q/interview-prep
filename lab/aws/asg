@@ -1,0 +1,7 @@
+#!/bin/sh
+# asg [NAME]: the group's min / desired / max and each instance's lifecycle state. Default web-asg.
+g=${1:-web-asg}
+aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$g" \
+  --query 'AutoScalingGroups[0].[MinSize,DesiredCapacity,MaxSize]' --output text | awk '{print "min " $1 "  desired " $2 "  max " $3}'
+aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$g" \
+  --query 'AutoScalingGroups[0].Instances[].[InstanceId,AvailabilityZone,LifecycleState,HealthStatus]' --output text | sed 's/^/  /'

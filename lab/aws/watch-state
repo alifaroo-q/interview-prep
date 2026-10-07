@@ -1,0 +1,10 @@
+#!/bin/sh
+# watch-state INSTANCE_ID TARGET_STATE: print the instance state every second until it reaches TARGET_STATE (max 60 s).
+i=$1; want=$2; last=; n=0
+while [ $n -lt 60 ]; do
+  s=$(aws ec2 describe-instances --instance-ids "$i" --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)
+  [ "$s" != "$last" ] && echo "  ${n}s  $s" && last=$s
+  [ "$s" = "$want" ] && exit 0
+  sleep 1; n=$((n+1))
+done
+echo "  still $last after 60 s"
