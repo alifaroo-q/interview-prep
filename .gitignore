@@ -1,1 +1,3 @@
 runtime/vendor/
+lab/cdn/origin-key.pem
+lab/cdn/origin-cert.pem
