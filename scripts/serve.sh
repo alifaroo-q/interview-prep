@@ -5,10 +5,10 @@ cd "$(dirname "$0")/.."
 [ -d runtime/vendor/pglite ] || scripts/vendor.sh
 # The AWS lab's emulator (Floci) starts EC2, ECS and Lambda containers itself, outside compose. They carry the label floci=true.
 floci_clean() {
-  docker rm -f $(docker ps -aq --filter label=floci=true) >/dev/null 2>&1
-  docker network rm $(docker network ls -q --filter label=floci=true) >/dev/null 2>&1
-  docker volume rm $(docker volume ls -q --filter label=floci=true) >/dev/null 2>&1
-  true
+  local ids
+  ids=$(docker ps -aq --filter label=floci=true) && [ -n "$ids" ] && docker rm -f $ids >/dev/null 2>&1 || true
+  ids=$(docker network ls -q --filter label=floci=true) && [ -n "$ids" ] && docker network rm $ids >/dev/null 2>&1 || true
+  ids=$(docker volume ls -q --filter label=floci=true) && [ -n "$ids" ] && docker volume rm $ids >/dev/null 2>&1 || true
 }
 if [ "${1:-}" = --docker ]; then
   # CDN and TCP/TLS labs: a self-signed key and certificate for a made-up name, made on first run, never committed.
