@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Correlated subqueries in PostgreSQL: the 29 second query</title>
+<style>
+:root{
+  --bg:#0f1218;--panel:#161b24;--panel2:#1d2430;--line:#2b3445;--text:#e3e8f0;--mute:#93a0b4;
+  --edge:#4ea1ff;--svc:#3ecf8e;--data:#f5b942;--msg:#b58cff;--bad:#ff6b6b;--plat:#7ad3e0;--client:#e0e6ef;
+  --ok:#3ecf8e;--warn:#f5b942;
+}
+body.light{--bg:#f6f7fa;--panel:#fff;--panel2:#eef1f6;--line:#d6dce6;--text:#1b2230;--mute:#5d6b80;--client:#39465a}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+code,pre,.mono{font-family:ui-monospace,"JetBrains Mono",Consolas,monospace;font-size:.88em}
+code{background:var(--panel2);padding:1px 5px;border-radius:4px}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow:auto;line-height:1.45}
+a{color:var(--edge)}
+/* layout */
+#side{position:fixed;top:0;left:0;bottom:0;width:290px;background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:16px 12px;z-index:5}
+#side h1{font-size:17px;margin:0 6px 4px}
+#side .sub{color:var(--mute);font-size:13px;margin:0 6px 10px}
+#prog{height:6px;background:var(--panel2);border-radius:3px;margin:0 6px 12px;overflow:hidden}
+#prog i{display:block;height:100%;width:0;background:var(--svc);transition:width .4s}
+#nav a{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;border-radius:6px;color:var(--text);text-decoration:none;font-size:14px;line-height:1.35}
+#nav a:hover{background:var(--panel2)}
+#nav a.cur{background:var(--panel2);box-shadow:inset 3px 0 var(--edge)}
+#nav a .num{color:var(--mute);min-width:22px;font-variant-numeric:tabular-nums}
+#nav a.done .num{color:var(--svc)}
+#nav a.done .num::after{content:" ✓"}
+#tools{display:flex;gap:6px;margin:14px 6px 0}
+main{margin-left:290px;padding:30px 40px 120px;max-width:1040px}
+#menu{display:none}
+@media(max-width:900px){#side{transform:translateX(-100%);transition:.25s}#side.open{transform:none}main{margin-left:0;padding:20px 16px 100px}#menu{display:block;position:fixed;top:10px;right:10px;z-index:6}}
+/* sections */
+section.ch{padding:10px 0 40px;border-bottom:1px solid var(--line);margin-bottom:30px}
+section.ch>h2{font-size:28px;line-height:1.2;margin:10px 0 4px}
+.topics{color:var(--mute);font-size:13px;margin-bottom:14px}
+h3{font-size:20px;margin:30px 0 8px}
+h4{font-size:16px;margin:20px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+p{margin:10px 0}
+.lead{font-size:18px}
+.note{border-left:3px solid var(--edge);background:var(--panel);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0}
+.note.warn{border-color:var(--warn)}.note.bad{border-color:var(--bad)}.note.good{border-color:var(--ok)}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--panel2)}
+.done-btn{margin-top:18px}
+/* controls */
+button,select,input[type=text]{font:inherit;font-size:14px;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 12px}
+button{cursor:pointer}
+button:hover{border-color:var(--edge)}
+button.pri{background:var(--edge);border-color:var(--edge);color:#fff}
+button.dan{border-color:var(--bad);color:var(--bad)}
+button:disabled{opacity:.45;cursor:default}
+label{font-size:14px;color:var(--mute)}
+input[type=range]{vertical-align:middle;width:160px}
+/* widget box */
+.lab{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin:18px 0}
+.lab>.t{font-weight:600;margin-bottom:4px}
+.lab>.t::before{content:"▶ ";color:var(--edge)}
+.lab .hint{color:var(--mute);font-size:14px;margin:0 0 10px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.log{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;height:190px;overflow:auto;font:13px/1.5 ui-monospace,Consolas,monospace}
+.log .ok{color:var(--ok)}.log .bad{color:var(--bad)}.log .warn{color:var(--warn)}.log .info{color:var(--edge)}.log .msg{color:var(--msg)}.log .mute{color:var(--mute)}
+.stat{display:inline-block;background:var(--panel2);border-radius:8px;padding:6px 12px;margin:3px;font-size:14px}
+.stat b{font-size:18px;display:block}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.grid2{grid-template-columns:1fr}}
+/* diagram nodes */
+.stage{padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;overflow:auto}
+.col{display:flex;flex-direction:column;align-items:center;gap:4px}
+.row{display:flex;justify-content:center;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.row.mid{align-items:center}
+.n{border:2px solid var(--svc);color:var(--text);background:var(--panel);border-radius:8px;padding:6px 12px;font-size:14px;text-align:center;min-width:110px;transition:opacity .35s,box-shadow .35s,transform .35s}
+.n small{display:block;color:var(--mute);font-size:11.5px}
+.n.edge{border-color:var(--edge)}.n.svc{border-color:var(--svc)}.n.data{border-color:var(--data);border-radius:14px 14px 8px 8px}.n.msg{border-color:var(--msg)}.n.bad{border-color:var(--bad)}.n.plat{border-color:var(--plat);border-style:dashed}.n.client{border-color:var(--client)}
+.n.dim{opacity:.35}.n.dead{border-color:var(--bad);opacity:.5;text-decoration:line-through}
+.n.hot{box-shadow:0 0 0 4px rgba(78,161,255,.35)}
+.n.hotok{box-shadow:0 0 0 4px rgba(62,207,142,.4)}
+.n.hotbad{box-shadow:0 0 0 4px rgba(255,107,107,.45)}
+.ar{color:var(--mute);font-size:18px;line-height:1;text-align:center;transition:opacity .35s}
+.ar small{font-size:11px;display:block}
+.box{border:1px dashed var(--line);border-radius:10px;padding:10px;position:relative}
+.box>.bt{position:absolute;top:-10px;left:10px;background:var(--bg);padding:0 6px;font-size:12px;color:var(--mute)}
+.fan{display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
+.fan>.col{gap:2px}
+/* build-up */
+.build{margin:16px 0}
+.build .off{opacity:0 !important;pointer-events:none}
+.build .fresh{animation:fresh 1.1s}
+@keyframes fresh{0%{transform:scale(.92);box-shadow:0 0 0 6px rgba(78,161,255,.55)}100%{transform:none}}
+.build .caps{min-height:52px;margin-top:10px}
+.build .cap{display:none;margin:0;background:var(--panel);border-radius:8px;padding:10px 14px;border:1px solid var(--line)}
+.build .cap.on{display:block}
+.build .ctl{display:flex;gap:8px;align-items:center;margin-top:8px}
+.build .ctl span{color:var(--mute);font-size:13px}
+/* misc widget bits */
+.pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:var(--panel2);border:1px solid var(--line)}
+.pill.ok{border-color:var(--ok);color:var(--ok)}.pill.bad{border-color:var(--bad);color:var(--bad)}.pill.warn{border-color:var(--warn);color:var(--warn)}
+.cells{display:flex;flex-wrap:wrap;gap:4px}
+.cell{min-width:34px;height:30px;border:1px solid var(--line);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;background:var(--panel2);padding:0 4px}
+.cell.msg{border-color:var(--msg)}.cell.bad{border-color:var(--bad);color:var(--bad)}.cell.ok{border-color:var(--ok)}.cell.busy{border-color:var(--warn);background:rgba(245,185,66,.18)}
+.meter{height:10px;background:var(--panel2);border-radius:5px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--svc);transition:width .3s}
+.flip{cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:90px}
+.flip .b{display:none;color:var(--mute);margin-top:6px;font-size:14px}
+.flip.open .b{display:block}
+.chk label{display:block;color:var(--text);padding:3px 0}
+.state{display:inline-block;padding:6px 14px;border-radius:8px;font-weight:700;border:2px solid var(--line);margin:2px}
+.state.on.closed{border-color:var(--ok);color:var(--ok)}.state.on.open{border-color:var(--bad);color:var(--bad)}.state.on.half{border-color:var(--warn);color:var(--warn)}
+.wf{position:relative;height:22px;margin:3px 0;font-size:12px}
+.wf i{position:absolute;top:0;height:100%;background:var(--edge);border-radius:4px;opacity:.85}
+.wf span{position:absolute;left:0;top:2px;width:120px;color:var(--mute)}
+.wfwrap{padding-left:125px;position:relative}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:14px}
+</style>
+</head>
+<body>
+<button id="menu" onclick="document.getElementById('side').classList.toggle('open')">☰ Menu</button>
+<aside id="side">
+  <h1>Correlated subqueries</h1>
+  <div class="sub">9 chapters · hands-on labs</div>
+  <div id="prog"><i></i></div>
+  <nav id="nav"></nav>
+  <div id="tools"><button onclick="document.body.classList.toggle('light')">Light / dark</button><button onclick="localStorage.removeItem('correlated-subquery-done');location.reload()">Reset progress</button></div>
+</aside>
+<main>
+
+<style>
+.pl{font:12.5px/1.6 ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;overflow:auto}
+.pl div{white-space:pre;cursor:pointer;border-radius:4px;padding:0 4px}
+.pl div:hover{background:var(--panel2)}
+.pl div.sel{background:var(--panel2);box-shadow:inset 3px 0 var(--edge)}
+.pl div.hd{cursor:default;color:var(--mute)}
+</style>
+
+<!-- Tier 1 databases. "shop" is read only (chapters 1 to 5). "idx" is for the chapters that add and drop indexes (6 to 9). -->
+<template data-db="shop" data-engine="pg">
+CREATE TABLE categories (id int PRIMARY KEY, category_name text NOT NULL);
+CREATE TABLE products (id int PRIMARY KEY, name text NOT NULL, category_id int NOT NULL);
+CREATE TABLE reviews (id int PRIMARY KEY, product_id int NOT NULL, rating int NOT NULL);
+INSERT INTO categories SELECT g, 'category ' || g FROM generate_series(1, 15) g;
+INSERT INTO products SELECT g, 'product ' || g, 1 + g % 15 FROM generate_series(1, 3000) g;
+INSERT INTO reviews SELECT g, 1 + g % 2700, 1 + (g * 7) % 5 FROM generate_series(1, 3000) g;
+ANALYZE;
+</template>
+<template data-db="idx" data-engine="pg" data-ext="pageinspect,pg_visibility">
+CREATE TABLE categories (id int PRIMARY KEY, category_name text NOT NULL);
+CREATE TABLE products (id int PRIMARY KEY, name text NOT NULL, category_id int NOT NULL);
+CREATE TABLE reviews (id int PRIMARY KEY, product_id int NOT NULL, rating int NOT NULL);
+INSERT INTO categories SELECT g, 'category ' || g FROM generate_series(1, 15) g;
+INSERT INTO products SELECT g, 'product ' || g, 1 + g % 15 FROM generate_series(1, 3000) g;
+INSERT INTO reviews SELECT g, 1 + g % 2700, 1 + (g * 7) % 5 FROM generate_series(1, 3000) g;
+ANALYZE;
+</template>
+
+<!-- ============================== 1 ============================== -->
+<section class="ch" id="c1" data-title="The 29 second query">
+<h2>1. The 29 second query</h2>
+<div class="topics">Covers: § the post, § fact-check summary table, § step-by-step 1 (the query pattern). Sources: PostgreSQL 18 docs 4.2.11 Scalar Subqueries, 14.1 Using EXPLAIN. Timings: measured for this page on 2026-10-13.</div>
+<p class="lead">A correlated subquery is a subquery that reads a column of the outer query. PostgreSQL must run it again for each outer row, because the value of that column changes from row to row.</p>
+<p>The notes start with a post. A catalog query on a 30,000 row table took 29 seconds. The author found two problems in the plan: a sequential scan on a join with no index, and a correlated subquery with an aggregate. The author moved the aggregate into a CTE, joined it with <code>LEFT JOIN</code>, and added two indexes. The query then took 0.5 seconds. The author made the two changes together and did not know which one helped.</p>
+<p>The post does not show the query. This page uses a query of the same shape. A shop has <code>products</code>, each product has a category, and each product has zero or more <code>reviews</code>. The catalog shows each product with its average rating.</p>
+<pre>SELECT p.id, p.name, c.category_name,
+       (SELECT avg(r.rating)            -- scalar subquery
+        FROM reviews r
+        WHERE r.product_id = p.id)      -- p.id comes from the outer row
+       AS avg_rating
+FROM products p
+JOIN categories c ON c.id = p.category_id;</pre>
+<p>A subquery in parentheses that returns one row with one column is a <b>scalar subquery</b>. The docs say that it "can refer to variables from the surrounding query, which will act as constants during any one evaluation of the subquery". The words "any one evaluation" tell you that there are many evaluations.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">products<small>3,000 rows on this page</small></div>
+  <div class="ar" data-s="2">↓ each row</div>
+  <div class="n svc" data-s="2">Join to categories<small>15 rows</small></div>
+  <div class="ar" data-s="3">↓ each row</div>
+  <div class="n bad" data-s="3">Scalar subquery: avg(rating) WHERE product_id = p.id<small>runs one time for each row that arrives here</small></div>
+  <div class="ar" data-s="4">↓</div>
+  <div class="n client" data-s="4">Result<small>3,000 rows, one average each</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The outer query reads <code>products</code>. Each row is one product.</p>
+  <p class="cap" data-s="2">Each product row gets its category name from <code>categories</code>. This is an ordinary join.</p>
+  <p class="cap" data-s="3">For each row, PostgreSQL puts the row's <code>p.id</code> into the subquery and runs it. 3,000 rows give 3,000 runs.</p>
+  <p class="cap" data-s="4">The output has one average for each product. The answer is correct. Only the cost is wrong.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<h3>What the notes claim, and what a real run shows</h3>
+<p>The notes contain a fact check and some <code>EXPLAIN ANALYZE</code> output. That output was written by a language model. It was not measured. For this page, every plan was run on PostgreSQL 18. Three claims in the notes did not hold.</p>
+<table>
+<tr><th>Claim in the notes</th><th>Result of a real run</th><th>Chapter</th></tr>
+<tr><td>The correlated subquery runs one time for each outer row. With no index, each run is a full scan.</td><td>True. The plan shows <code>loops=3000</code> on the scan.</td><td>2, 3</td></tr>
+<tr><td>The join with no index caused the slow query.</td><td>False. The planner used a Hash Join, which reads each table one time.</td><td>4</td></tr>
+<tr><td>Moving the aggregate into a CTE with a LEFT JOIN is a correct fix.</td><td>True for <code>avg</code>. For <code>count</code> the result changes from 0 to NULL.</td><td>5</td></tr>
+<tr><td>The slow plan shows <code>Buffers: shared hit=30000 read=1200000</code>.</td><td>False. Buffers are <code>loops × pages of reviews</code>, and all are hits.</td><td>3</td></tr>
+<tr><td>"Virtually all" of the gain came from the rewrite. The indexes gave only milliseconds.</td><td>False. The index alone removes more than 99% of the time. So does the rewrite alone.</td><td>6, 8</td></tr>
+<tr><td>An Index Only Scan in the subquery takes 200 to 450 ms. The rewrite takes 15 to 45 ms.</td><td>The direction is correct, the size is not. Measured: 54 ms against 31 ms at 30,000 rows.</td><td>7, 8</td></tr>
+<tr><td>The rewrite is the better form.</td><td>Not always. With a filter that keeps few products, the correlated subquery does less work.</td><td>9</td></tr>
+</table>
+
+<div class="lab sql" data-db="shop">
+ <div class="t">Lab: run both forms on real PostgreSQL</div>
+ <p class="hint">This is PostgreSQL 18 in your browser, with 3,000 products and 3,000 reviews. Run preset 2, then preset 3. Compare the <code>Execution Time</code> line at the bottom of each plan. Preset 2 is the form that breaks: same answer, about 80 times the time in my browser (yours will vary).</p>
+ <template data-label="1. Look at the data">SELECT * FROM products ORDER BY id LIMIT 4;
+SELECT * FROM reviews ORDER BY id LIMIT 4;
+SELECT (SELECT count(*) FROM products) AS products, (SELECT count(*) FROM reviews) AS reviews, (SELECT count(*) FROM categories) AS categories;</template>
+ <template data-label="2. Correlated subquery (slow)">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, c.category_name,
+       (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p
+JOIN categories c ON c.id = p.category_id;</template>
+ <template data-label="3. Aggregate once, then join (fast)">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, c.category_name, pr.avg_rating
+FROM products p
+JOIN categories c ON c.id = p.category_id
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr
+       ON pr.product_id = p.id;</template>
+ <template data-label="4. Same answer?">SELECT count(*) AS rows_that_differ FROM (
+  (SELECT p.id, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) FROM products p)
+  EXCEPT
+  (SELECT p.id, pr.a FROM products p LEFT JOIN (SELECT product_id, avg(rating) a FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id)
+) d;</template>
+ <textarea>SELECT p.id, p.name, c.category_name,
+       (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p
+JOIN categories c ON c.id = p.category_id
+ORDER BY p.id LIMIT 8;</textarea>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============================== 2 ============================== -->
+<section class="ch" id="c2" data-title="How a correlated subquery runs">
+<h2>2. How a correlated subquery runs</h2>
+<div class="topics">Covers: § fact-check 1, § step-by-step 2 (steps 1 and 2). Sources: PostgreSQL 18 docs 14.1.1 EXPLAIN Basics (subplans, hashed subplans, initplans), 4.2.11 Scalar Subqueries; PostgreSQL source <code>src/backend/optimizer/plan/subselect.c</code>.</div>
+<p class="lead">In a plan, a subquery that PostgreSQL cannot merge into the outer query is a <b>SubPlan</b>. A correlated SubPlan has a parameter, here <code>p.id</code>. The executor sets the parameter from the current outer row and runs the SubPlan from its start. It does this for each outer row.</p>
+<p>The subquery cannot run one time before the outer query, because its answer is different for each product. Without help, the only way to find the reviews of product 7 is to read all reviews and keep those with <code>product_id = 7</code>. Then the same for product 8, and so on.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">Outer row<small>products: id = 1</small></div>
+  <div class="ar" data-s="2">↓ p.id = 1</div>
+  <div class="n svc" data-s="2">SubPlan 1<small>parameter: p.id</small></div>
+  <div class="ar" data-s="3">↓</div>
+  <div class="n bad" data-s="3">Seq Scan on reviews<small>reads all 3,000 rows, keeps those with product_id = 1</small></div>
+  <div class="ar" data-s="4">↓ matching rows</div>
+  <div class="n svc" data-s="4">Aggregate<small>avg(rating): one value</small></div>
+  <div class="ar" data-s="5">↺ next outer row: id = 2</div>
+  <div class="n bad" data-s="5">The scan starts again from the first page<small>3,000 outer rows × 3,000 review rows = 9,000,000 rows read</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The outer plan gives one product row.</p>
+  <p class="cap" data-s="2">The executor copies <code>p.id</code> into the SubPlan parameter.</p>
+  <p class="cap" data-s="3">With no index on <code>reviews.product_id</code>, the only access method is a sequential scan of the full table. The filter drops all rows of other products.</p>
+  <p class="cap" data-s="4">The aggregate node returns one value. This value goes into the <code>avg_rating</code> column of the output row.</p>
+  <p class="cap" data-s="5">The next outer row has a different <code>p.id</code>. Nothing from the last run can be used again, so the scan repeats. The work is the product of the two row counts.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<h3>Why the planner does not fix this for you</h3>
+<p>The planner can change some subqueries into joins. In the source file <code>subselect.c</code>, the function <code>pull_up_sublinks</code> changes <code>IN</code> (<code>= ANY</code>) and <code>EXISTS</code> subqueries in <code>WHERE</code> into semi joins and anti joins. A scalar subquery in the <code>SELECT</code> list is not in that group. It stays a SubPlan, and you must do the rewrite by hand.</p>
+<p>A SubPlan does not always run many times. The docs name two cheaper forms. Each form needs a subquery that does not read outer columns.</p>
+<table>
+<tr><th>Plan label</th><th>When</th><th>Runs</th></tr>
+<tr><td><code>SubPlan</code> (correlated)</td><td>the subquery reads an outer column</td><td>one time for each outer row</td></tr>
+<tr><td><code>InitPlan</code></td><td>no outer column, and at most one row</td><td>one time for the query</td></tr>
+<tr><td>hashed <code>SubPlan</code></td><td>no outer column, used by <code>IN</code> / <code>= ANY</code> with an operator that can hash</td><td>one time, result loaded into a hash table</td></tr>
+</table>
+
+<div class="lab" id="w-sp">
+ <div class="t">Lab: step through the SubPlan (model)</div>
+ <p class="hint">A model with 10 reviews. Each cell in <b>reviews</b> is <code>product_id:rating</code>. Press <b>Step</b> to process one outer row. Yellow cells are rows that the scan read and dropped. Green cells are matches. Then switch on the index and step again: only the green cells are read. Products 5 and 6 have no reviews, so their average is NULL.</p>
+ <div class="bar"><label>Outer rows (products): <input type="range" id="sp-n" min="1" max="6" value="4"> <b id="sp-nv">4</b></label>
+  <label><input type="checkbox" id="sp-idx"> Index on reviews.product_id</label>
+  <button class="pri" id="sp-step">Step</button><button id="sp-run">Run all</button><button id="sp-reset">Reset</button></div>
+ <div class="grid2">
+  <div><h4>products (outer)</h4><div class="cells" id="sp-prod"></div></div>
+  <div><h4>reviews (inside the SubPlan)</h4><div class="cells" id="sp-rev"></div></div>
+ </div>
+ <div id="sp-stats" style="margin-top:8px"></div>
+ <div class="log" id="sp-log" style="height:130px"></div>
+ <h4>Scale it up</h4>
+ <p class="hint">Set both to 30,000, the size in the post. The rate is an example: on my machine the real server in chapter 8 read about 40 million rows each second in this loop. Change it for yours.</p>
+ <div class="bar"><label>products <select id="sc-n"><option>300</option><option selected>3000</option><option>30000</option><option>300000</option></select></label>
+  <label>reviews <select id="sc-m"><option>300</option><option selected>3000</option><option>30000</option><option>300000</option></select></label>
+  <label>million rows / second <input type="text" id="sc-rate" value="40" size="4" style="width:60px"></label></div>
+ <div id="sc-out"></div>
+</div>
+
+<div class="lab sql" data-db="shop">
+ <div class="t">Lab: count the loops on real PostgreSQL</div>
+ <p class="hint">Run the three presets in order. Look at <code>loops=</code> on the <code>Seq Scan on reviews</code> line. It is equal to the number of outer rows: 750, 1,500, 3,000. The execution time grows with it. Preset 4 has a subquery with no outer column, so it becomes an <code>InitPlan</code> with <code>loops=1</code>.</p>
+ <template data-label="1. 750 outer rows">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p WHERE p.id &lt;= 750;</template>
+ <template data-label="2. 1,500 outer rows">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p WHERE p.id &lt;= 1500;</template>
+ <template data-label="3. 3,000 outer rows">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p;</template>
+ <template data-label="4. Not correlated: InitPlan">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, (SELECT avg(r.rating) FROM reviews r) AS avg_of_all
+FROM products p;</template>
+ <textarea>EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p WHERE p.id &lt;= 750;</textarea>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============================== 3 ============================== -->
+<section class="ch" id="c3" data-title="Read loops in EXPLAIN ANALYZE">
+<h2>3. Read loops in EXPLAIN ANALYZE</h2>
+<div class="topics">Covers: § raw EXPLAIN ANALYZE plans 1 and 2, with their "what to look for" lists. Sources: PostgreSQL 18 docs 14.1.2 EXPLAIN ANALYZE. Plan numbers: one run of PGlite in Node on my machine. In a browser the same engine is about 2 times slower. Yours will vary.</div>
+<p class="lead"><code>EXPLAIN ANALYZE</code> runs the query and prints, for each plan node, the time it took and the rows it returned. For a node that ran more than one time, the time and the row count are averages for one run. You must multiply by <code>loops</code> to get the total.</p>
+<p>The docs say: "the <code>loops</code> value reports the total number of executions of the node, and the actual time and rows values shown are averages per-execution" and "Multiply by the <code>loops</code> value to get the total time actually spent in the node."</p>
+<p>This is the slow plan from chapter 1, as real PostgreSQL 18 printed it:</p>
+<pre>Hash Join (actual time=0.640..709.560 rows=3000.00 loops=1)
+  Hash Cond: (p.category_id = c.id)
+  Buffers: shared hit=51021
+  -&gt;  Seq Scan on products p (actual time=0.033..1.193 rows=3000.00 loops=1)
+  -&gt;  Hash (actual time=0.041..0.043 rows=15.00 loops=1)
+        -&gt;  Seq Scan on categories c (actual time=0.009..0.023 rows=15.00 loops=1)
+  SubPlan 1
+    -&gt;  Aggregate (actual time=0.233..0.234 rows=1.00 loops=3000)
+          Buffers: shared hit=51000
+          -&gt;  Seq Scan on reviews r (actual time=0.112..0.229 rows=1.00 loops=3000)
+                Filter: (product_id = p.id)
+                Rows Removed by Filter: 2999
+                Buffers: shared hit=51000
+Execution Time: 710.857 ms</pre>
+<table>
+<tr><th>Line</th><th>How to read it</th></tr>
+<tr><td><code>actual time=0.112..0.229</code></td><td>Milliseconds to the first row and to the last row, for one run of the node. The second number is the one to multiply.</td></tr>
+<tr><td><code>loops=3000</code></td><td>The node ran 3,000 times. 0.229 ms × 3,000 = 687 ms. That is 97% of the query.</td></tr>
+<tr><td><code>rows=1.00</code></td><td>Average rows returned by one run. PostgreSQL 18 prints two decimals, because an average can be a fraction.</td></tr>
+<tr><td><code>Rows Removed by Filter: 2999</code></td><td>Also an average for one run. 2,999 × 3,000 = 8,997,000 rows read and dropped.</td></tr>
+<tr><td><code>Buffers: shared hit=51000</code></td><td>A total, not an average. <code>reviews</code> has 17 pages. 17 × 3,000 = 51,000 page reads.</td></tr>
+<tr><td><code>Hash Join … 709.560</code></td><td>The time of a parent node includes its children. The SubPlan is in the output list of the Hash Join, so its time is in this number.</td></tr>
+</table>
+<p>In PostgreSQL 18, <code>ANALYZE</code> switches on <code>BUFFERS</code> by default. <code>hit</code> counts pages found in shared buffers. <code>read</code> counts pages that PostgreSQL had to get from the operating system. The notes show <code>read=1200000</code> in this plan. That cannot be correct for a small table: after the first loop, all 17 pages are in shared buffers, and each later loop is all hits. The lab below shows it.</p>
+<div class="note warn">Times of 0.001 ms have only one useful digit. For very fast nodes, <code>time × loops</code> is a rough number. Use the parent node's time, or <code>Execution Time</code>, to check it.</div>
+
+<div class="lab" id="w-pr">
+ <div class="t">Lab: plan reader (model)</div>
+ <p class="hint">Click a plan line. The box shows the time for one loop, the loops, and the product. First click <code>Seq Scan on reviews r</code> in the slow plan. Its line says 0.229 ms, which looks cheap. That number is the error this lab shows: the total is 687 ms. Then pick the other two plans and click the same level.</p>
+ <div class="bar"><label>Plan <select id="pr-sel"><option value="slow">Correlated subquery, no index</option><option value="index">Correlated subquery, index on product_id</option><option value="fast">Aggregate once, then join</option></select></label></div>
+ <div class="pl" id="pr-plan"></div>
+ <div id="pr-out" style="margin-top:8px"></div>
+</div>
+
+<div class="lab sql" data-db="shop">
+ <div class="t">Lab: check the buffer count on real PostgreSQL</div>
+ <p class="hint">Preset 1 gives the number of 8 kB pages in <code>reviews</code>, and that number times 3,000. Preset 2 prints the plan with buffers. The <code>Buffers: shared hit=</code> value on the Seq Scan is the same number. There is no <code>read=</code> part.</p>
+ <template data-label="1. Pages of reviews × loops">SELECT pg_relation_size('reviews') / 8192 AS pages,
+       3000 * (pg_relation_size('reviews') / 8192) AS pages_times_loops;</template>
+ <template data-label="2. Slow plan with buffers">EXPLAIN (ANALYZE, COSTS OFF)
+SELECT p.id, p.name, c.category_name,
+       (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p
+JOIN categories c ON c.id = p.category_id;</template>
+ <template data-label="3. Fast plan with buffers">EXPLAIN (ANALYZE, COSTS OFF)
+SELECT p.id, p.name, c.category_name, pr.avg_rating
+FROM products p
+JOIN categories c ON c.id = p.category_id
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr
+       ON pr.product_id = p.id;</template>
+ <textarea>SELECT pg_relation_size('reviews') / 8192 AS pages,
+       3000 * (pg_relation_size('reviews') / 8192) AS pages_times_loops;</textarea>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============================== 4 ============================== -->
+<section class="ch" id="c4" data-title="The join was not the problem">
+<h2>4. The join was not the problem</h2>
+<div class="topics">Covers: § fact-check 2, § the minimal rewrite of the post, § step-by-step 2 (step 3). Sources: PostgreSQL 18 docs 51.5 Planner/Optimizer (join strategies), Planner Method Configuration, 14.1.2 EXPLAIN ANALYZE (Rows Removed by Join Filter).</div>
+<p class="lead">A Hash Join reads one table one time and puts its rows into a hash table in memory. Then it reads the other table one time and looks up each row in the hash table. It needs no index.</p>
+<p>The post lists "a full table scan on a join" as the first problem. The scan was real: the plan shows <code>Seq Scan on products</code> and <code>Seq Scan on categories</code>. But a sequential scan is the correct access method when the query needs all rows of a table. The cost of a join comes from how many times each table is read. In a Hash Join that number is one.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">Seq Scan on categories<small>15 rows, read one time</small></div>
+  <div class="ar" data-s="2">↓ build</div>
+  <div class="n svc" data-s="2">Hash<small>hash table in memory, key = c.id</small></div>
+  <div class="ar" data-s="3">↑ probe with p.category_id</div>
+  <div class="n data" data-s="3">Seq Scan on products<small>3,000 rows, read one time</small></div>
+  <div class="ar" data-s="4">↓</div>
+  <div class="n client" data-s="4">Hash Join output<small>3,000 joined rows</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The planner makes the smaller table the build side. Here that is <code>categories</code>.</p>
+  <p class="cap" data-s="2">The <code>Hash</code> node puts all 15 rows into a hash table. The plan line shows its size: <code>Memory Usage: 5kB</code>.</p>
+  <p class="cap" data-s="3">The join reads <code>products</code> one time. For each row it computes the hash of <code>category_id</code> and finds the match in the table. One lookup, not a scan.</p>
+  <p class="cap" data-s="4">Total rows read: 15 + 3,000. The join took about 2 ms of the 710 ms in the slow plan.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<p>The post expected the other join method. A <b>Nested Loop</b> with no index reads the full inner table for each outer row. That is the same shape as the SubPlan in chapter 2. The difference is who decides. For a join, the planner compares the methods and takes the cheapest. For the scalar subquery, there is no choice: it must run for each row.</p>
+<table>
+<tr><th></th><th>Join with no index</th><th>Correlated scalar subquery with no index</th></tr>
+<tr><td>Planner can pick a one-pass method</td><td>yes: Hash Join or Merge Join</td><td>no</td></tr>
+<tr><td>Times the inner table is read</td><td>1</td><td>one for each outer row</td></tr>
+<tr><td>Cost of the missing index</td><td>none here</td><td>all of the 29 seconds</td></tr>
+</table>
+<div class="note">The missing index did matter in the post, but because of the subquery, not because of the join. The post says two join columns had no index. It is possible that one of them was the column the subquery filters on.</div>
+
+<div class="lab sql" data-db="shop">
+ <div class="t">Lab: a join with no index, on real PostgreSQL</div>
+ <p class="hint"><code>reviews.product_id</code> has no index. Run preset 1: the planner picks a Hash Join and each scan has <code>loops=1</code>. Preset 2 is the break. It switches off the one-pass methods for one query, so the planner must use a Nested Loop. Watch <code>loops=3000</code> and <code>Rows Removed by Join Filter</code>. It takes a few seconds.</p>
+ <template data-label="1. Planner's choice: Hash Join">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, r.rating FROM products p JOIN reviews r ON r.product_id = p.id;</template>
+ <template data-label="2. Break it: force a Nested Loop">SET enable_hashjoin = off; SET enable_mergejoin = off; SET enable_indexscan = off; SET enable_bitmapscan = off; SET enable_material = off;
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, r.rating FROM products p JOIN reviews r ON r.product_id = p.id;
+RESET enable_hashjoin; RESET enable_mergejoin; RESET enable_indexscan; RESET enable_bitmapscan; RESET enable_material;</template>
+ <template data-label="3. The join in the catalog query">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, c.category_name FROM products p JOIN categories c ON c.id = p.category_id;</template>
+ <textarea>EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, r.rating FROM products p JOIN reviews r ON r.product_id = p.id;</textarea>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============================== 5 ============================== -->
+<section class="ch" id="c5" data-title="The rewrite: aggregate once, then join">
+<h2>5. The rewrite: aggregate once, then join</h2>
+<div class="topics">Covers: § fact-check 3 with the note on CTEs and derived tables, § step-by-step 3 (steps A and B). Sources: PostgreSQL 18 docs 7.8.3 Common Table Expression Materialization, 9.21 Aggregate Functions, 7.2.1.1 Joined Tables; PostgreSQL 12 release notes (CTE inlining).</div>
+<p class="lead">The rewrite computes the average for all products in one pass over <code>reviews</code>, with <code>GROUP BY product_id</code>. Then it joins that result to <code>products</code>. No part of the plan runs more than one time.</p>
+<pre>SELECT p.id, p.name, c.category_name, pr.avg_rating
+FROM products p
+JOIN categories c ON c.id = p.category_id
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating
+           FROM reviews
+           GROUP BY product_id) pr ON pr.product_id = p.id;</pre>
+<p>The subquery in <code>FROM</code> does not read an outer column. So PostgreSQL can run it one time. For the grouping, the planner picks a <b>HashAggregate</b>: a hash table with one entry for each <code>product_id</code>. Each entry holds the running state of the aggregate. For <code>avg</code> that is a sum and a count.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">Seq Scan on reviews<small>3,000 rows, loops=1</small></div>
+  <div class="ar" data-s="2">↓ each row</div>
+  <div class="n svc" data-s="2">HashAggregate<small>Group Key: product_id. 2,700 groups, each with sum and count</small></div>
+  <div class="ar" data-s="3">↓ 2,700 rows</div>
+  <div class="n svc" data-s="3">Hash<small>hash table, key = product_id</small></div>
+  <div class="ar" data-s="4">↑ probe with p.id</div>
+  <div class="n data" data-s="4">products joined to categories<small>3,000 rows, from the Hash Join of chapter 4</small></div>
+  <div class="ar" data-s="5">↓</div>
+  <div class="n client" data-s="5">Hash Left Join output<small>3,000 rows. 300 products with no reviews get NULL</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">One sequential scan of <code>reviews</code>. This is the only time the table is read.</p>
+  <p class="cap" data-s="2">Each review row goes to the entry of its <code>product_id</code> and adds to the sum and the count. At the end, each entry gives one average.</p>
+  <p class="cap" data-s="3">The 2,700 averages go into a second hash table, for the join.</p>
+  <p class="cap" data-s="4">Each product row looks up its <code>id</code> in that table. One lookup for each row.</p>
+  <p class="cap" data-s="5">A LEFT JOIN keeps a product with no match and fills the columns of the other side with NULL. Total rows read: 3,000 + 3,000 + 15, not 9,000,000.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<h3>Two ways to get a different answer</h3>
+<p>The rewrite must return the same rows as the original. Two details can change the result.</p>
+<p><b>The join type.</b> The scalar subquery returns a value for each product, also for a product with no reviews. The docs say: "if, during a particular execution, the subquery returns no rows, there is no error; the scalar result is taken to be null." Only a <code>LEFT JOIN</code> keeps those products. An inner <code>JOIN</code> removes them from the catalog.</p>
+<p><b>The aggregate.</b> The docs say about aggregates: "except for <code>count</code>, these functions return a null value when no rows are selected." So a correlated <code>count(*)</code> returns 0 for a product with no reviews. After the rewrite there is no group for that product, and the LEFT JOIN gives NULL. For <code>count</code> you must write <code>COALESCE(pr.n, 0)</code>. For <code>avg</code>, NULL is the same in both forms.</p>
+
+<h3>CTE or subquery in FROM</h3>
+<p>The post used a CTE (<code>WITH pr AS (…)</code>). In current PostgreSQL the plan is the same. The docs say that a <code>WITH</code> query that is non-recursive, has no side effects and is referenced one time "can be folded into the parent query, allowing joint optimization of the two query levels".</p>
+<table>
+<tr><th>Form</th><th>Behaviour</th></tr>
+<tr><td>Subquery in <code>FROM</code></td><td>Always planned together with the outer query.</td></tr>
+<tr><td>CTE, referenced one time, PostgreSQL 12 and later</td><td>Folded into the outer query. Same plan as the subquery in <code>FROM</code>.</td></tr>
+<tr><td>CTE, PostgreSQL 11 and earlier, or <code>AS MATERIALIZED</code>, or referenced two or more times</td><td>Computed separately and stored. Filters of the outer query cannot go into it.</td></tr>
+</table>
+<p>For the full catalog this difference does not matter, because the query needs all groups. It matters with a filter. Chapter 9 uses it.</p>
+
+<div class="lab" id="w-ha">
+ <div class="t">Lab: one pass into a hash table (model)</div>
+ <p class="hint">The same 10 reviews as in chapter 2. Press <b>Step</b>. First the scan reads each review one time and updates one entry of the hash table. Then each of the 6 products does one lookup. Compare "review rows read" with the model in chapter 2. To break it: set the join to INNER and see products 5 and 6 leave the result. Then set LEFT and the aggregate to count: the two products get NULL where the correlated subquery gave 0.</p>
+ <div class="bar"><label>Join <select id="ha-join"><option value="left">LEFT JOIN</option><option value="inner">JOIN (inner)</option></select></label>
+  <label>Aggregate <select id="ha-agg"><option value="avg">avg(rating)</option><option value="count">count(*)</option></select></label>
+  <label><input type="checkbox" id="ha-coal"> COALESCE(n, 0) for count</label>
+  <button class="pri" id="ha-step">Step</button><button id="ha-run">Run all</button><button id="ha-reset">Reset</button></div>
+ <div class="grid2">
+  <div><h4>reviews (read one time)</h4><div class="cells" id="ha-rev"></div>
+   <h4>HashAggregate table</h4><div class="cells" id="ha-tab"></div></div>
+  <div><h4>Output of the join</h4><div id="ha-out"></div></div>
+ </div>
+ <div id="ha-stats" style="margin-top:8px"></div>
+</div>
+
+<div class="lab sql" data-db="shop">
+ <div class="t">Lab: the rewrite on real PostgreSQL</div>
+ <p class="hint">Preset 1: find <code>HashAggregate</code> with <code>Group Key</code> and <code>loops=1</code> on each line. Preset 2 is the CTE form: the plan is the same. Presets 3 and 4 break the result: the inner join returns 2,700 rows, not 3,000, and <code>count</code> gives 300 NULLs where the correlated form gives 300 zeros. Preset 5 is the correct count.</p>
+ <template data-label="1. Subquery in FROM">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, c.category_name, pr.avg_rating
+FROM products p
+JOIN categories c ON c.id = p.category_id
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr
+       ON pr.product_id = p.id;</template>
+ <template data-label="2. Same as a CTE">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+WITH pr AS (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id)
+SELECT p.id, p.name, c.category_name, pr.avg_rating
+FROM products p
+JOIN categories c ON c.id = p.category_id
+LEFT JOIN pr ON pr.product_id = p.id;</template>
+ <template data-label="3. Break it: inner JOIN">SELECT (SELECT count(*) FROM products) AS products,
+       (SELECT count(*) FROM products p
+        JOIN (SELECT product_id, avg(rating) a FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id) AS rows_with_inner_join,
+       (SELECT count(*) FROM products p
+        LEFT JOIN (SELECT product_id, avg(rating) a FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id) AS rows_with_left_join;</template>
+ <template data-label="4. Break it: count gives NULL">SELECT 'correlated' AS form, count(*) FILTER (WHERE n = 0) AS zeros, count(*) FILTER (WHERE n IS NULL) AS nulls
+FROM (SELECT (SELECT count(*) FROM reviews r WHERE r.product_id = p.id) AS n FROM products p) s
+UNION ALL
+SELECT 'left join', count(*) FILTER (WHERE n = 0), count(*) FILTER (WHERE n IS NULL)
+FROM (SELECT pr.n FROM products p LEFT JOIN (SELECT product_id, count(*) AS n FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id) s;</template>
+ <template data-label="5. Fix: COALESCE">SELECT count(*) FILTER (WHERE n = 0) AS zeros, count(*) FILTER (WHERE n IS NULL) AS nulls
+FROM (SELECT COALESCE(pr.n, 0) AS n FROM products p LEFT JOIN (SELECT product_id, count(*) AS n FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id) s;</template>
+ <textarea>SELECT p.id, p.name, pr.avg_rating
+FROM products p
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id
+WHERE p.id IN (1, 2, 2700, 2701, 3000) ORDER BY p.id;</textarea>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============================== 6 ============================== -->
+<section class="ch" id="c6" data-title="The index without the rewrite">
+<h2>6. The index without the rewrite</h2>
+<div class="topics">Covers: § EXPLAIN ANALYZE for the correlated subquery with an index on reviews(product_id), all three parts. Sources: PostgreSQL 18 docs 14.1.2 EXPLAIN ANALYZE (Index Searches), 11 Indexes, pageinspect (<code>bt_metap</code>). Timings: measured, will vary.</div>
+<p class="lead">An index on <code>reviews (product_id)</code> does not change how many times the subquery runs. It changes what one run costs. Each run goes down a B-tree to the matching rows and does not read the other rows.</p>
+<p>The plan keeps its shape. The SubPlan still shows <code>loops=3000</code>. Inside it, <code>Seq Scan on reviews</code> becomes <code>Index Scan using reviews_product_id</code>. The line <code>Rows Removed by Filter: 2999</code> is gone, because the scan does not touch those rows.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n svc" data-s="1">SubPlan 1<small>p.id = 7</small></div>
+  <div class="ar" data-s="2">↓</div>
+  <div class="n data" data-s="2">B-tree root page<small>finds which leaf page holds key 7</small></div>
+  <div class="ar" data-s="3">↓</div>
+  <div class="n data" data-s="3">B-tree leaf page<small>entries for product_id = 7, each with a row address</small></div>
+  <div class="ar" data-s="4">↓</div>
+  <div class="n data" data-s="4">Heap page of reviews<small>the row, to read rating</small></div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The SubPlan starts one index search for the current <code>p.id</code>.</p>
+  <p class="cap" data-s="2">The search starts at the root page. With 3,000 rows this tree has two levels: one root and the leaf pages below it.</p>
+  <p class="cap" data-s="3">The leaf page holds the entries for the key. Each entry points to a row in the table.</p>
+  <p class="cap" data-s="4">The scan gets the row from the table to read <code>rating</code>. That is 3 pages for one run, and 3 × 3,000 = 9,000 buffers in the plan, against 51,000 before.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<p>Measured results. Yours will vary.</p>
+<table>
+<tr><th>Correlated subquery</th><th>3,000 rows, PGlite in my browser</th><th>30,000 rows, PostgreSQL 18.6 in Docker</th></tr>
+<tr><td>no index</td><td>1,837 ms, 51,000 buffers</td><td>22,041 ms, 4,890,193 buffers</td></tr>
+<tr><td>index on <code>reviews (product_id)</code></td><td>33 ms, 9,000 buffers</td><td>61 ms, 90,193 buffers</td></tr>
+</table>
+<p>The notes give 415 ms for the indexed case at 30,000 rows. The real server needed 61 ms. The conclusion in that part of the notes is still correct: the index alone takes the query from tens of seconds to a small part of one second. Chapter 8 puts this next to the rewrite.</p>
+<div class="note warn">The planner uses the index only when the condition compares the indexed column itself. An expression on the column, such as <code>r.product_id + 0 = p.id</code> or a cast to a different type, makes the index unusable for that condition. The plan goes back to 3,000 sequential scans. Preset 5 shows it.</div>
+
+<div class="lab sql" data-db="idx">
+ <div class="t">Lab: add the index, keep the subquery</div>
+ <p class="hint">Run the presets in order. In preset 2, look for <code>Index Scan</code>, <code>Index Searches: 3000</code> and <code>loops=3000</code>, and compare <code>Buffers</code> with 51,000. Preset 3 reads the B-tree metapage: <code>level</code> 1 means the root is one step above the leaf pages. Preset 5 breaks it with an expression on the column.</p>
+ <template data-label="1. Before: no index">DROP INDEX IF EXISTS reviews_product_id, reviews_pid_rating;
+EXPLAIN (ANALYZE, COSTS OFF)
+SELECT p.id, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating FROM products p;</template>
+ <template data-label="2. CREATE INDEX, same query">CREATE INDEX IF NOT EXISTS reviews_product_id ON reviews (product_id);
+EXPLAIN (ANALYZE, COSTS OFF)
+SELECT p.id, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating FROM products p;</template>
+ <template data-label="3. Height of the B-tree">CREATE INDEX IF NOT EXISTS reviews_product_id ON reviews (product_id);
+SELECT level, root AS root_page FROM bt_metap('reviews_product_id');
+SELECT pg_relation_size('reviews_product_id') / 8192 AS index_pages;</template>
+ <template data-label="4. Does the rewrite use the index?">CREATE INDEX IF NOT EXISTS reviews_product_id ON reviews (product_id);
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, pr.avg_rating FROM products p
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id;</template>
+ <template data-label="5. Break it: expression on the column">CREATE INDEX IF NOT EXISTS reviews_product_id ON reviews (product_id);
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id + 0 = p.id) AS avg_rating FROM products p;</template>
+ <textarea>SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'reviews';</textarea>
+</div>
+<p>Preset 4 answers a question from the notes. The rewrite reads all of <code>reviews</code>, so the planner keeps the sequential scan and does not use the index. For a query that needs each row of a table, an index on that table gives nothing.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============================== 7 ============================== -->
+<section class="ch" id="c7" data-title="Index Only Scan against one pass">
+<h2>7. Index Only Scan against one pass</h2>
+<div class="topics">Covers: § why an Index Only Scan on (product_id, rating) is slower than a HashAggregate, parts 1 to 5 and the mechanical comparison table. Sources: PostgreSQL 18 docs 11.9 Index-Only Scans and Covering Indexes, Visibility Map, pg_visibility, 51.6 Executor. Timings: measured, will vary.</div>
+<p class="lead">An Index Only Scan answers a query from the index and does not read the table. It is possible when the index holds each column the query needs, and when the visibility map says that the table page has no rows that are hidden from some transaction.</p>
+<p>The subquery needs two columns of <code>reviews</code>: <code>product_id</code> to search and <code>rating</code> to average. An index on <code>(product_id, rating)</code> holds both. Such an index is a <b>covering index</b> for this query. Each run of the SubPlan can now stop at the leaf page.</p>
+<p>There is one more check. An index entry does not say which transactions can see the row. The docs say: "Visibility information is not stored in index entries, only in heap entries". So PostgreSQL keeps a <b>visibility map</b> with one bit for each table page. The bit is set when all rows on the page are visible to all transactions. <code>VACUUM</code> sets it. A write to the page clears it.</p>
+
+<div class="build">
+ <div class="stage col">
+  <div class="n data" data-s="1">Index leaf entry<small>(product_id = 7, rating = 4) → row address on heap page 3</small></div>
+  <div class="ar" data-s="2">↓</div>
+  <div class="n plat" data-s="2">Visibility map<small>bit for heap page 3</small></div>
+  <div class="fan" data-s="3">
+   <div class="col"><div class="ar" data-s="3">↓ bit set</div><div class="n svc" data-s="3">Return rating from the index<small>no table read</small></div></div>
+   <div class="col"><div class="ar" data-s="4">↓ bit not set</div><div class="n bad" data-s="4">Heap fetch<small>read the table page to check the row</small></div></div>
+  </div>
+ </div>
+ <div class="caps">
+  <p class="cap" data-s="1">The search finds the entry. The entry holds both columns the query needs.</p>
+  <p class="cap" data-s="2">Before it uses the entry, the scan reads the visibility map bit of the table page that the row is on.</p>
+  <p class="cap" data-s="3">If the bit is set, the row is visible. The scan returns <code>rating</code> from the index entry. The plan shows <code>Heap Fetches: 0</code>.</p>
+  <p class="cap" data-s="4">If the bit is not set, the scan must read the table row. The docs: "no performance advantage is gained over a standard index scan". The plan counts each such read in <code>Heap Fetches</code>.</p>
+ </div>
+ <div class="ctl"></div>
+</div>
+
+<h3>Why it is still more work than one pass</h3>
+<p>With the covering index, the subquery form is fast. It is still not as fast as the rewrite for the full catalog. The notes give five reasons. Two of them show in a real plan, one has a source, and two have no evidence here.</p>
+<table>
+<tr><th>Reason in the notes</th><th>Status</th></tr>
+<tr><td>The SubPlan starts 30,000 times. The rewrite starts each node one time.</td><td>Seen: <code>loops=30000</code> and <code>Index Searches: 30000</code>, against <code>loops=1</code>.</td></tr>
+<tr><td>Each run goes down the tree again. The pass reads each page one time.</td><td>Seen: 60,194 buffers against 356 buffers at 30,000 rows.</td></tr>
+<tr><td>Each index entry needs a visibility map check.</td><td>Sourced (docs 11.9). The docs add that the map is very small and "remains cached in memory all the time" in most cases.</td></tr>
+<tr><td>Buffer pin and unpin operations cost time.</td><td>Not measured here. The buffer counts above are the nearest evidence.</td></tr>
+<tr><td>CPU cache misses, and "vectorized" loops in the HashAggregate.</td><td>No source. PostgreSQL's executor is not vectorized: the docs say each plan node "must deliver one more row" each time it is called.</td></tr>
+</table>
+<p>The size of the difference in the notes is too large. Measured at 30,000 rows on PostgreSQL 18.6: 54 ms for the subquery with the covering index, 31 ms for the rewrite. The notes say 200 to 450 ms against 15 to 45 ms.</p>
+
+<div class="lab sql" data-db="idx">
+ <div class="t">Lab: covering index and the visibility map</div>
+ <p class="hint">Run the presets in order. After preset 2, <code>all_visible</code> is equal to the page count of the table, and preset 3 shows <code>Index Only Scan</code> with <code>Heap Fetches: 0</code>. Preset 4 breaks it: an UPDATE clears bits in the map. Run preset 3 again and the heap fetches are back. Preset 2 repairs it.</p>
+ <template data-label="1. Covering index">CREATE INDEX IF NOT EXISTS reviews_pid_rating ON reviews (product_id, rating);
+SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'reviews';</template>
+ <template data-label="2. VACUUM reviews">VACUUM reviews;</template>
+ <template data-label="3. Plan + visibility map">SELECT pg_relation_size('reviews') / 8192 AS table_pages, all_visible FROM pg_visibility_map_summary('reviews');
+EXPLAIN (ANALYZE, COSTS OFF)
+SELECT p.id, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating FROM products p;</template>
+ <template data-label="4. Break it: UPDATE, no VACUUM">UPDATE reviews SET rating = rating WHERE id &lt;= 1500;
+SELECT pg_relation_size('reviews') / 8192 AS table_pages, all_visible FROM pg_visibility_map_summary('reviews');</template>
+ <template data-label="5. The rewrite, for comparison">EXPLAIN (ANALYZE, COSTS OFF)
+SELECT p.id, pr.avg_rating FROM products p
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id;</template>
+ <textarea>CREATE INDEX IF NOT EXISTS reviews_pid_rating ON reviews (product_id, rating);
+SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'reviews';</textarea>
+</div>
+<p>In preset 5 the rewrite still reads the table with one sequential scan and a <code>HashAggregate</code>. The covering index gives it nothing, the same as the index in chapter 6.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============================== 8 ============================== -->
+<section class="ch" id="c8" data-title="Measure the two changes apart">
+<h2>8. Measure the two changes apart</h2>
+<div class="topics">Covers: § fact-check 4, § step-by-step 4 (what the indexes contributed), § the takeaway table. Sources: PostgreSQL 18 docs 14.1.2 EXPLAIN ANALYZE. All timings: PostgreSQL 18.6 in Docker and PGlite 18.3 on my machine, 2026-10-13. Yours will vary.</div>
+<p class="lead">The post made two changes and measured one time. To know what each change did, run all four cases: old query or new query, with the index or without it.</p>
+<p>The author guessed that the rewrite did the work. The first answer in the notes agrees: "virtually all of the 28.5 seconds came from the rewrite", and the indexes "shaved off the remaining milliseconds". A later answer in the same notes says the opposite: the index alone was enough. Only one of these can be correct, and a measurement decides it.</p>
+<table>
+<tr><th>30,000 products, 30,000 reviews</th><th>no index</th><th>index on <code>reviews (product_id)</code></th></tr>
+<tr><td><b>Correlated subquery</b></td><td>22,041 ms<br><small>30,000 sequential scans, 4,890,193 buffers</small></td><td>61 ms<br><small>30,000 index searches, 90,193 buffers</small></td></tr>
+<tr><td><b>Aggregate once, then join</b></td><td>31 ms<br><small>one pass, 356 buffers</small></td><td>31 ms<br><small>same plan, the index is not used</small></td></tr>
+</table>
+<p>Read the table by row and by column.</p>
+<ul>
+<li>The rewrite alone: 22,041 ms to 31 ms.</li>
+<li>The index alone: 22,041 ms to 61 ms.</li>
+<li>Each change alone removes more than 99% of the time. Each one removes the cause, which is 30,000 full scans of <code>reviews</code>. The rewrite makes it one scan. The index makes each of the 30,000 runs read 3 pages and not 163.</li>
+<li>When the rewrite is in, the index adds nothing for this query. When the index is in, the rewrite makes the query 2 times as fast.</li>
+</ul>
+<div class="note">So the question "how much was the rewrite and how much was the indexes" has no single answer. The two changes fix the same problem, and the second one applied finds almost nothing left. The correct statement for the post is: "Either change alone would have brought it under 0.1 seconds on this data. I did not measure them apart."</div>
+<p>The slow case took 22 seconds here and 29 seconds in the post. The same order of size on different hardware, with 900 million rows read in both. That supports the post's diagnosis of the subquery.</p>
+
+<div class="lab sql" data-db="idx">
+ <div class="t">Lab: the four cases at 3,000 rows (browser)</div>
+ <p class="hint">Each preset sets the index state and runs one case. Write down the four <code>Execution Time</code> values. Run each one two times, because the first run after a change also loads pages. In my browser: A 1,751 ms, B 21 ms, C 37 ms, D 22 ms.</p>
+ <template data-label="A. Subquery, no index">DROP INDEX IF EXISTS reviews_product_id, reviews_pid_rating;
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, c.category_name,
+       (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p JOIN categories c ON c.id = p.category_id;</template>
+ <template data-label="B. Rewrite, no index">DROP INDEX IF EXISTS reviews_product_id, reviews_pid_rating;
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, c.category_name, pr.avg_rating
+FROM products p JOIN categories c ON c.id = p.category_id
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id;</template>
+ <template data-label="C. Subquery + index">DROP INDEX IF EXISTS reviews_pid_rating;
+CREATE INDEX IF NOT EXISTS reviews_product_id ON reviews (product_id);
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, c.category_name,
+       (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p JOIN categories c ON c.id = p.category_id;</template>
+ <template data-label="D. Rewrite + index">DROP INDEX IF EXISTS reviews_pid_rating;
+CREATE INDEX IF NOT EXISTS reviews_product_id ON reviews (product_id);
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, c.category_name, pr.avg_rating
+FROM products p JOIN categories c ON c.id = p.category_id
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id;</template>
+ <textarea>SELECT indexname FROM pg_indexes WHERE tablename = 'reviews';</textarea>
+</div>
+
+<div class="lab term" data-tool="psql" data-panes="1">
+ <div class="t">Lab: the size in the post, on a real server (Docker)</div>
+ <p class="hint">A real PostgreSQL 18 server with 30,000 products and 30,000 reviews. Needs <code>scripts/serve.sh --docker</code>. Send preset A first. It is the slow case: the pane shows "waiting" for many seconds (22 on my machine) and then <code>loops=30000</code>. Then send B, C and D and compare the <code>Execution Time</code> lines.</p>
+ <template class="setup">DROP TABLE IF EXISTS sq_reviews, sq_products, sq_categories;
+CREATE TABLE sq_categories (id int PRIMARY KEY, category_name text NOT NULL);
+CREATE TABLE sq_products (id int PRIMARY KEY, name text NOT NULL, category_id int NOT NULL);
+CREATE TABLE sq_reviews (id int PRIMARY KEY, product_id int NOT NULL, rating int NOT NULL);
+INSERT INTO sq_categories SELECT g, 'category ' || g FROM generate_series(1, 15) g;
+INSERT INTO sq_products SELECT g, 'product ' || g, 1 + g % 15 FROM generate_series(1, 30000) g;
+INSERT INTO sq_reviews SELECT g, 1 + g % 27000, 1 + (g * 7) % 5 FROM generate_series(1, 30000) g;
+VACUUM ANALYZE sq_categories, sq_products, sq_reviews;</template>
+ <template data-label="A. Subquery, no index (slow)">DROP INDEX IF EXISTS sq_reviews_product_id;
+EXPLAIN (ANALYZE, COSTS OFF) SELECT p.id, p.name, c.category_name, (SELECT avg(r.rating) FROM sq_reviews r WHERE r.product_id = p.id) AS avg_rating FROM sq_products p JOIN sq_categories c ON c.id = p.category_id;</template>
+ <template data-label="B. Rewrite, no index">DROP INDEX IF EXISTS sq_reviews_product_id;
+EXPLAIN (ANALYZE, COSTS OFF) SELECT p.id, p.name, c.category_name, pr.avg_rating FROM sq_products p JOIN sq_categories c ON c.id = p.category_id LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM sq_reviews GROUP BY product_id) pr ON pr.product_id = p.id;</template>
+ <template data-label="C. Subquery + index">CREATE INDEX IF NOT EXISTS sq_reviews_product_id ON sq_reviews (product_id);
+EXPLAIN (ANALYZE, COSTS OFF) SELECT p.id, p.name, c.category_name, (SELECT avg(r.rating) FROM sq_reviews r WHERE r.product_id = p.id) AS avg_rating FROM sq_products p JOIN sq_categories c ON c.id = p.category_id;</template>
+ <template data-label="D. Rewrite + index">CREATE INDEX IF NOT EXISTS sq_reviews_product_id ON sq_reviews (product_id);
+EXPLAIN (ANALYZE, COSTS OFF) SELECT p.id, p.name, c.category_name, pr.avg_rating FROM sq_products p JOIN sq_categories c ON c.id = p.category_id LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM sq_reviews GROUP BY product_id) pr ON pr.product_id = p.id;</template>
+</div>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+
+<!-- ============================== 9 ============================== -->
+<section class="ch" id="c9" data-title="When the correlated subquery is correct">
+<h2>9. When the correlated subquery is the correct tool</h2>
+<div class="topics">Covers: § step-by-step 4 ("where the indexes do help"), § the last line of the notes about a needle and a haystack. Sources: PostgreSQL 18 docs 7.2.1.5 LATERAL Subqueries, 7.8.3 Common Table Expression Materialization, 14.1 Using EXPLAIN. Timings: measured in PGlite, will vary.</div>
+<p class="lead">The rewrite computes the aggregate for all products. That is correct when the query shows all products. When the query shows only a few, the rewrite can compute thousands of averages and use one. A correlated subquery with an index computes only the averages that the output needs.</p>
+<p>The rule is to compare two numbers: the outer rows that stay after the filter, and the rows of the table inside the subquery.</p>
+<table>
+<tr><th>Query</th><th>Correlated subquery + index</th><th>Aggregate once, then join</th></tr>
+<tr><td>Full catalog, 3,000 products</td><td>3,000 index searches</td><td>one pass. Faster.</td></tr>
+<tr><td><code>WHERE p.id = 7</code></td><td>1 index search</td><td>also 1 index search. The planner moves the filter into the grouped subquery.</td></tr>
+<tr><td><code>WHERE p.name = 'product 7'</code></td><td>1 index search. Faster.</td><td>reads all 3,000 reviews, makes 2,700 groups, uses 1</td></tr>
+<tr><td><code>ORDER BY p.id LIMIT 20</code> (one page)</td><td>20 runs. The subquery runs only for rows in the output.</td><td>reads all 3,000 reviews</td></tr>
+</table>
+<p>The second row needs an explanation. The filter <code>p.id = 7</code> is on the join column. The join condition says <code>pr.product_id = p.id</code>, so the planner knows that <code>product_id = 7</code> also, and it puts that filter inside the grouped subquery. A filter on a different column, such as <code>name</code>, gives the planner no such value. The grouped subquery has no way to know which products the outer query keeps.</p>
+<p>A CTE that is materialized stops the filter in each case. This is the "optimization fence" that the notes mention for PostgreSQL 11 and earlier. You get the same behaviour in current versions with <code>AS MATERIALIZED</code>.</p>
+
+<h3>LATERAL: a correlated subquery in FROM</h3>
+<p>A scalar subquery returns one column. When you need two or more values for each outer row, for example the average and the count, use <code>LEFT JOIN LATERAL (…) ON true</code>. A <code>LATERAL</code> subquery in <code>FROM</code> can read columns of the tables before it. The docs say that it is evaluated for each row of those tables. So it has the same cost model as the correlated subquery: one run for each outer row, and it needs the index.</p>
+
+<div class="lab sql" data-db="idx">
+ <div class="t">Lab: few outer rows</div>
+ <p class="hint">Preset 1 makes the index. Presets 2 and 3 filter on <code>name</code>. Compare them: the subquery form reads 2 review rows, and the rewrite shows <code>HashAggregate … rows=2700.00</code> to give one row. That is the break case for the rewrite. Preset 4 filters on <code>id</code>: find <code>product_id = 7</code> inside the grouped part of the plan. Preset 5 adds <code>MATERIALIZED</code> and the filter stays outside.</p>
+ <template data-label="1. Index on product_id">DROP INDEX IF EXISTS reviews_pid_rating;
+CREATE INDEX IF NOT EXISTS reviews_product_id ON reviews (product_id);
+ANALYZE reviews;</template>
+ <template data-label="2. Subquery, filter on name">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p WHERE p.name = 'product 7';</template>
+ <template data-label="3. Break it: rewrite, filter on name">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, pr.avg_rating FROM products p
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id
+WHERE p.name = 'product 7';</template>
+ <template data-label="4. Rewrite, filter on id">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, pr.avg_rating FROM products p
+LEFT JOIN (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id) pr ON pr.product_id = p.id
+WHERE p.id = 7;</template>
+ <template data-label="5. MATERIALIZED CTE, filter on id">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+WITH pr AS MATERIALIZED (SELECT product_id, avg(rating) AS avg_rating FROM reviews GROUP BY product_id)
+SELECT p.id, p.name, pr.avg_rating FROM products p LEFT JOIN pr ON pr.product_id = p.id
+WHERE p.id = 7;</template>
+ <template data-label="6. One page: LIMIT 20">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, (SELECT avg(r.rating) FROM reviews r WHERE r.product_id = p.id) AS avg_rating
+FROM products p ORDER BY p.id LIMIT 20;</template>
+ <template data-label="7. LATERAL: two values">EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF)
+SELECT p.id, p.name, s.avg_rating, s.n FROM products p
+LEFT JOIN LATERAL (SELECT avg(r.rating) AS avg_rating, count(*) AS n FROM reviews r WHERE r.product_id = p.id) s ON true
+WHERE p.name = 'product 7';</template>
+ <textarea>DROP INDEX IF EXISTS reviews_pid_rating;
+CREATE INDEX IF NOT EXISTS reviews_product_id ON reviews (product_id);
+ANALYZE reviews;</textarea>
+</div>
+
+<h3>Which form to write</h3>
+<table>
+<tr><th>Situation</th><th>Form</th><th>Why</th></tr>
+<tr><td>Report or export over all or most outer rows</td><td>Aggregate once, then join</td><td>One pass. Needs no index.</td></tr>
+<tr><td>One row or one page of rows, index on the inner column</td><td>Correlated subquery or LATERAL</td><td>Work grows with the rows shown, not with the table.</td></tr>
+<tr><td>Correlated subquery, no index on the inner column, many outer rows</td><td>Do not ship it</td><td>Rows read = outer rows × inner rows. This is the 29 second query.</td></tr>
+<tr><td>You are not sure</td><td>Run <code>EXPLAIN ANALYZE</code> on real data sizes</td><td>Look for a node with large <code>loops</code> and multiply.</td></tr>
+</table>
+<p>On a small table the slow form is not visible. At 300 products and 300 reviews it reads 90,000 rows and takes a few milliseconds. The cost grows with the product of the two tables, so 10 times the data gives 100 times the work. Test with the row counts that production will have.</p>
+<button class="done-btn">Mark chapter as read</button>
+</section>
+</main>
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const rnd=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function log(el,msg,cls=''){if(typeof el==='string')el=$(el);const d=document.createElement('div');d.className=cls;d.textContent=msg;el.appendChild(d);el.scrollTop=el.scrollHeight;}
+const stat=(v,label,color)=>`<span class="stat"><b${color?` style="color:var(--${color})"`:''}>${v}</b>${label}</span>`;
+
+/* ---------- nav + progress ---------- */
+const secs=$$('section.ch'),done=new Set(JSON.parse(localStorage.getItem('correlated-subquery-done')||'[]'));
+secs.forEach((s,i)=>{const a=document.createElement('a');a.href='#'+s.id;a.dataset.id=s.id;a.innerHTML=`<span class="num">${i+1}</span><span>${s.dataset.title}</span>`;a.onclick=()=>$('#side').classList.remove('open');$('#nav').appendChild(a);
+ $('.done-btn',s).onclick=()=>{done.has(s.id)?done.delete(s.id):done.add(s.id);localStorage.setItem('correlated-subquery-done',JSON.stringify([...done]));paintNav();};});
+function paintNav(){$$('#nav a').forEach(a=>a.classList.toggle('done',done.has(a.dataset.id)));secs.forEach(s=>$('.done-btn',s).textContent=done.has(s.id)?'✓ Read (click to undo)':'Mark chapter as read');$('#prog i').style.width=(done.size/secs.length*100)+'%';}
+paintNav();
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)$$('#nav a').forEach(a=>a.classList.toggle('cur',a.dataset.id===e.target.id));}),{rootMargin:'-35% 0px -60% 0px'});
+secs.forEach(s=>io.observe(s));
+
+/* ---------- build-up diagrams ---------- */
+$$('.build').forEach(b=>{
+ const items=$$('.stage [data-s]',b),caps=$$('.cap',b),ctl=$('.ctl',b);
+ const max=Math.max(...items.map(e=>+e.dataset.s),...caps.map(c=>+c.dataset.s));let cur=1;
+ ctl.innerHTML='<button data-a="first">⏮</button><button data-a="prev">◀ Back</button><button class="pri" data-a="next">Next ▶</button><button data-a="all">Show all</button><span></span>';
+ function show(fresh){items.forEach(e=>{const s=+e.dataset.s;e.classList.toggle('off',s>cur);e.classList.remove('fresh');if(fresh&&s===cur){void e.offsetWidth;e.classList.add('fresh');}});
+  caps.forEach(c=>c.classList.toggle('on',+c.dataset.s===cur));$('span',ctl).textContent=`Step ${cur} of ${max}`;$('[data-a=prev]',ctl).disabled=cur<=1;$('[data-a=next]',ctl).disabled=cur>=max;}
+ ctl.onclick=e=>{const a=e.target.dataset.a;if(!a)return;cur=a==='next'?cur+1:a==='prev'?cur-1:a==='first'?1:max;cur=Math.max(1,Math.min(max,cur));show(a==='next');};
+ show(false);
+});
+
+
+/* ---------- labs: one IIFE per lab ---------- */
+// Model data for chapters 2 and 5: [product_id, rating]. Products 5 and 6 have no reviews.
+const REV=[[1,5],[2,3],[1,4],[3,2],[2,5],[4,1],[1,3],[3,4],[2,2],[4,5]];
+const num=n=>n.toLocaleString('en');
+
+/* chapter 2: SubPlan stepper + scale */
+(()=>{let i=0,runs=0,read=0,busy=false;const lg=$('#sp-log'),n=()=>+$('#sp-n').value,idx=()=>$('#sp-idx').checked;
+ function paint(cur){$('#sp-nv').textContent=n();
+  $('#sp-prod').innerHTML=Array.from({length:n()},(_,k)=>`<div class="cell ${k+1===cur?'busy':k<i?'ok':''}">p.id=${k+1}</div>`).join('');
+  $('#sp-rev').innerHTML=REV.map(([p,r])=>`<div class="cell ${cur&&p===cur?'ok':cur&&!idx()?'busy':''}">${p}:${r}</div>`).join('');
+  $('#sp-stats').innerHTML=stat(runs,'SubPlan runs (loops)')+stat(read,'review rows read',idx()?'ok':'bad')+stat(n()*REV.length,'outer rows × review rows');}
+ function step(){if(i>=n())return false;const id=++i,m=REV.filter(r=>r[0]===id);runs++;read+=idx()?m.length:REV.length;paint(id);
+  log(lg,`p.id=${id}: ${idx()?`index search, read ${m.length} row(s)`:`read all ${REV.length} rows, removed ${REV.length-m.length}`}. avg = ${m.length?(m.reduce((a,r)=>a+r[1],0)/m.length).toFixed(2):'NULL'}`,m.length?'':'warn');return i<n();}
+ function reset(){i=runs=read=0;lg.innerHTML='';paint(0);}
+ $('#sp-step').onclick=()=>{if(!busy)step();};
+ $('#sp-run').onclick=async()=>{if(busy)return;busy=true;reset();while(step())await sleep(450);busy=false;};
+ $('#sp-reset').onclick=$('#sp-n').oninput=$('#sp-idx').onchange=()=>{if(!busy)reset();};
+ reset();
+ function scale(){const N=+$('#sc-n').value,M=+$('#sc-m').value,rate=(parseFloat($('#sc-rate').value)||40)*1e6,c=N*M,s=c/rate;
+  $('#sc-out').innerHTML=stat(num(c),'rows read, subquery with no index',c>=1e8?'bad':c>=1e6?'warn':'ok')+stat((s<1?(s*1000).toFixed(0)+' ms':s.toFixed(1)+' s'),'at that rate (example)')+stat(num(N),'index searches, subquery with index','ok')+stat(num(N+M),'rows read, aggregate once then join','ok');}
+ $('#sc-n').onchange=$('#sc-m').onchange=$('#sc-rate').oninput=scale;scale();
+})();
+
+/* chapter 3: plan reader. Numbers: one run in PGlite (PostgreSQL 18.3) on the author's machine. */
+(()=>{const PL={
+ slow:{exec:710.857,lines:[['Hash Join',709.56,1],['  -> Seq Scan on products p',1.193,1],['  -> Hash',0.043,1],['        -> Seq Scan on categories c',0.023,1],['  SubPlan 1'],['    -> Aggregate',0.234,3000],['          -> Seq Scan on reviews r',0.229,3000,2999]]},
+ index:{exec:26.696,lines:[['Hash Join',25.893,1],['  -> Seq Scan on products p',0.86,1],['  -> Hash',0.017,1],['        -> Seq Scan on categories c',0.009,1],['  SubPlan 1'],['    -> Aggregate',0.007,3000],['          -> Index Scan using reviews_product_id on reviews r',0.002,3000]]},
+ fast:{exec:11.179,lines:[['Hash Left Join',10.501,1],['  -> Hash Join',2.456,1],['        -> Seq Scan on products p',0.663,1],['        -> Hash',0.021,1],['              -> Seq Scan on categories c',0.01,1],['  -> Hash',6.496,1],['        -> Subquery Scan on pr',5.524,1],['              -> HashAggregate',4.446,1],['                    -> Seq Scan on reviews',0.669,1]]}};
+ function draw(){const p=PL[$('#pr-sel').value];$('#pr-out').innerHTML=stat(p.exec.toFixed(1)+' ms','Execution Time');
+  $('#pr-plan').innerHTML=p.lines.map((l,k)=>l.length<2?`<div class="hd">${l[0]}</div>`:`<div data-k="${k}">${l[0]}  (actual time=..${l[1].toFixed(3)} loops=${l[2]})</div>`).join('');}
+ $('#pr-plan').onclick=e=>{const k=e.target.dataset.k;if(k===undefined)return;const p=PL[$('#pr-sel').value],[name,t,loops,removed]=p.lines[k],tot=t*loops;
+  $$('#pr-plan div').forEach(d=>d.classList.toggle('sel',d===e.target));
+  $('#pr-out').innerHTML=stat(t.toFixed(3)+' ms','one loop')+stat('× '+num(loops),'loops',loops>1?'warn':'')+stat(tot.toFixed(1)+' ms','total in this node and its children',loops>1&&tot>100?'bad':'ok')+stat(Math.min(100,tot/p.exec*100).toFixed(0)+'%','of Execution Time '+p.exec.toFixed(1)+' ms')+(removed?stat(num(removed*loops),`rows removed by filter (${num(removed)} × ${num(loops)})`,'bad'):'');};
+ $('#pr-sel').onchange=draw;draw();
+})();
+
+/* chapter 5: HashAggregate, then join */
+(()=>{let k=0,j=0,busy=false;const P=6;
+ function paint(){const g=new Map();REV.slice(0,k).forEach(([p,r])=>{const e=g.get(p)||{s:0,c:0};e.s+=r;e.c++;g.set(p,e);});
+  const agg=$('#ha-agg').value,inner=$('#ha-join').value==='inner',co=$('#ha-coal').checked&&agg==='count';
+  $('#ha-rev').innerHTML=REV.map(([p,r],x)=>`<div class="cell ${x===k-1&&!j?'busy':x<k?'ok':''}">${p}:${r}</div>`).join('');
+  $('#ha-tab').innerHTML=[...g].sort((a,b)=>a[0]-b[0]).map(([p,e])=>`<div class="cell msg">${p} → sum ${e.s}, count ${e.c}</div>`).join('')||'<span class="pill">empty</span>';
+  let rows='',out=0;for(let id=1;id<=j;id++){const e=g.get(id);
+   if(!e&&inner){rows+=`<tr><td>${id}</td><td style="color:var(--bad)">row dropped: no entry in the hash table</td></tr>`;continue;}
+   out++;rows+=`<tr><td>${id}</td><td${!e&&!co?' style="color:var(--warn)"':''}>${e?(agg==='avg'?(e.s/e.c).toFixed(2):e.c):co?0:'NULL'}</td></tr>`;}
+  $('#ha-out').innerHTML=`<table><tr><th>p.id</th><th>${agg==='avg'?'avg_rating':'review_count'}</th></tr>${rows}</table>`;
+  $('#ha-stats').innerHTML=stat(k,'review rows read (one pass)','ok')+stat(g.size,'entries in the hash table')+stat(j,'products probed')+stat(out,'output rows',out<j?'bad':'ok');}
+ const step=()=>{if(k<REV.length)k++;else if(j<P)j++;else return false;paint();return true;};
+ function reset(){k=j=0;paint();}
+ $('#ha-step').onclick=()=>{if(!busy)step();};
+ $('#ha-run').onclick=async()=>{if(busy)return;busy=true;reset();while(step())await sleep(300);busy=false;};
+ $('#ha-reset').onclick=()=>{if(!busy)reset();};
+ $('#ha-join').onchange=$('#ha-agg').onchange=$('#ha-coal').onchange=paint;
+ reset();
+})();
+</script>
+<script type="module" src="../runtime/lab.js"></script>
+</body>
+</html>
